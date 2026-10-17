@@ -1,0 +1,9 @@
+{
+  "name": "BEAM",
+  "source_repository": "https://github.com/mohammadtavakoli78/BEAM",
+  "source_commit": "3e12035532eb85768f1a7cd779832b650c4b2ef9",
+  "dataset_repository": "https://huggingface.co/datasets/Mohammadta/BEAM",
+  "dataset_splits": ["100K", "500K", "1M"],
+  "license": "MIT",
+  "redistributed": false
+}

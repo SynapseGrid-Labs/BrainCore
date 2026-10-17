@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+    environment:
+      POSTGRES_DB: braincore_benchmark
+      POSTGRES_USER: braincore_test
+      POSTGRES_PASSWORD: test-only-password
+    ports:
+      - "127.0.0.1:${BRAINCORE_BENCHMARK_PORT:-55433}:5432"
+    shm_size: "${BRAINCORE_BENCHMARK_SHM_SIZE:-256mb}"
+    volumes:
+      - type: bind
+        source: "${BRAINCORE_BENCHMARK_DATA:?Set an empty directory on storage sized for this experiment}"
+        target: /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U braincore_test -d braincore_benchmark"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

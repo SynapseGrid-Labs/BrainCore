@@ -1,89 +1,51 @@
 {
   "schema_version": 1,
-  "description": "Active BrainCore README and GitHub presentation assets.",
+  "description": "BrainCore 2.0 README illustrations; conceptual, not live runtime screenshots.",
   "assets": [
     {
-      "path": "assets/og.jpg",
+      "path": "assets/braincore-2-hero.png",
       "status": "active",
-      "usage": "README hero block and social preview source",
-      "format": "JPEG",
+      "usage": "Shared memory hero",
+      "format": "PNG",
       "width": 1672,
       "height": 941,
-      "sha256": "4c579e101e0946225bc5f430babcff5cf0ccdeb476020dbe06fb605b7c3b5ca9",
-      "visible_claims": [
-        "BrainCore",
-        "Evidence-first enterprise memory lifecycle for AI agents",
-        "PostgreSQL + pgvector · CLI/MCP controls · Open Source",
-        "v1.2",
-        "Governed memory",
-        "Audit trails",
-        "Traceable context",
-        "Evidence-first design"
-      ]
+      "sha256": "fa298730e23c0336162857c33d5eea9ce975d6e97a72266a62d5c73ac047cb94"
     },
     {
-      "path": "assets/lifecycle-control-flow.jpg",
+      "path": "assets/braincore-2-memory-flow.png",
       "status": "active",
-      "usage": "README lifecycle control flow overview",
-      "format": "JPEG",
-      "width": 1671,
+      "usage": "Save, find, check, correct flow",
+      "format": "PNG",
+      "width": 1672,
       "height": 941,
-      "sha256": "016e990502245c50964d4923c69dbe4f507b3adfdedcce3718d92ff14d8d7184",
-      "visible_claims": [
-        "BrainCore v1.2 Memory Lifecycle Control Flow",
-        "Native evidence is preserved",
-        "Sources",
-        "Extraction",
-        "Facts",
-        "Review Queue",
-        "Approved Memory",
-        "Snapshot Retrieval",
-        "Prompt Package",
-        "Feedback",
-        "Suppression Overlay",
-        "Retirement Overlay",
-        "Audit Logs (Append-Only)"
-      ]
+      "sha256": "53d6b4fd2ca2f4e39189e00e23a085493c8f3e14d12de76b63f916d3a77eeda3"
     },
     {
-      "path": "assets/architecture.jpg",
+      "path": "assets/braincore-2-architecture.png",
       "status": "active",
-      "usage": "README architecture section",
-      "format": "JPEG",
-      "width": 1671,
+      "usage": "October service architecture",
+      "format": "PNG",
+      "width": 1672,
       "height": 941,
-      "sha256": "955d16e45d599ee3c0350af27ea6c66996dff7915243e5f4c7050f44a08ae065",
-      "visible_claims": [
-        "BrainCore v1.2 Architecture",
-        "Ingest",
-        "Archive",
-        "Extract",
-        "Load",
-        "Review",
-        "Govern",
-        "Retrieve",
-        "Audit",
-        "Source Ingestion",
-        "Durable Storage & Index Layer",
-        "Cross-Cutting Enablers",
-        "Audit & Lineage",
-        "Migration & Schema Management (v1.2)"
-      ]
+      "sha256": "13fdbe52d001d63c9854fb0d915aaf7ee2bce3d699b00f47049e8d9b85f257c5"
     },
     {
-      "path": "assets/maintained-by-trent.jpg",
+      "path": "assets/braincore-2-overview.png",
       "status": "active",
-      "usage": "README author note banner",
-      "format": "JPEG",
-      "width": 1200,
-      "height": 397,
-      "sha256": "5db51cbc0a9e28904994a2f2f8584e2665db7f89cf6487eff30133ff494f76f7",
-      "visible_claims": [
-        "Built by Trent Doney",
-        "SynapseGrid Labs",
-        "Practical AI infrastructure for autonomous agents, memory systems, and automation.",
-        "Follow @trentdoney"
-      ]
+      "usage": "Conceptual capability overview",
+      "format": "PNG",
+      "width": 1672,
+      "height": 941,
+      "sha256": "ce612b096342da6e4c8221fd0ea4812106d2093a21a16cbe8f4134ed96da8de6"
+    },
+    {
+      "path": "assets/braincore-2-maintainer.png",
+      "status": "active",
+      "usage": "Approved public author attribution",
+      "format": "PNG",
+      "width": 2172,
+      "height": 724,
+      "sha256": "7a5febf849be5723a398bb2b7476072e10d3a71d4297fc3aab754b25cefe01ab"
     }
   ]
 }

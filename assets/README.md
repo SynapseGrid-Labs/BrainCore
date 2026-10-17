@@ -1,31 +1,38 @@
-# BrainCore launch assets
+# BrainCore 2.0 README artwork
 
-The current BrainCore visuals are committed in this repository. Files marked
-`Active` are used by the README or GitHub presentation layer in this branch.
-Historical image files may remain in the directory, but only manifest-listed
-active assets should be referenced by public docs.
+This set replaces the earlier README image suite with artwork describing
+BrainCore 2.0. The images were produced with OpenAI image generation on
+2026-10-17. They use a connected-agent visual theme and source-based product
+copy. They are illustrations and conceptual diagrams, not live screenshots,
+benchmark results, operational evidence, or claims that release checks passed.
 
-| File | Status | Dimensions | Format | Usage |
-|---|---|---|---|---|
-| `og.jpg` | Active | 1672 by 941 | JPEG | README hero block and social preview source |
-| `lifecycle-control-flow.jpg` | Active | 1671 by 941 | JPEG | README lifecycle control flow overview |
-| `architecture.jpg` | Active | 1671 by 941 | JPEG | README architecture section |
-| `maintained-by-trent.jpg` | Active | 1200 by 397 | JPEG | README author note banner |
-| `manifest.json` | Reference | n/a | JSON | Hash and dimension manifest |
-| `README.md` | Reference | n/a | Markdown | Asset notes |
+| File | Purpose |
+| --- | --- |
+| `braincore-2-hero.png` | Connected agents sharing useful knowledge through BrainCore. |
+| `braincore-2-memory-flow.png` | Save, find, check, and correct; optional suppression or retirement keeps an audit trail. |
+| `braincore-2-architecture.png` | API clients, dashboard, PostgreSQL/pgvector, worker, local embedder, and optional extraction provider. |
+| `braincore-2-overview.png` | Conceptual capability overview, explicitly separate from a live application screen. |
+| `braincore-2-maintainer.png` | Public attribution to Trent Doney and SynapseGrid Labs. |
 
-## Image Asset Ownership
+Generation used OpenAI’s built-in image-generation tool. The new hero uses the
+earlier public hero as an identity, motif, and style reference. The maintainer
+image uses the approved existing public maintainer banner to preserve its
+illustrated Trent likeness and public attribution. That reference does not
+authorize unrelated likeness use. The diagrams use newly composed product copy.
+The diagrams describe the current source interfaces and service relationships;
+no operational data or private infrastructure reference was supplied as product
+content. Exact generation prompts and review evidence are maintained separately.
 
-Image assets are human-owned release materials. Agents must not create,
-regenerate, replace, compress, optimize, or overwrite image files in this
-repository. If a visual refresh is needed, agents may identify the need and
-provide prompt text only in chat or private planning notes. The human owner must
-create, review, approve, and supply the final asset before it can be committed.
+README alt text and neighboring prose explain the content without requiring the
+images. Agent integrations provide tools; the agent or application decides when
+to save, search, or use a result. The capability overview contains no actual
+runtime data, and the diagrams do not imply automatic approval gates, prompt assembly,
+or guaranteed memory accuracy.
 
-Any unexpected image binary diff is a public-release blocker. Do not commit
-generated prompts, draft image instructions, hostnames, IP addresses, internal
-paths, private project names, tokens, or deployment-only metadata into this
-public repository.
+Project licensing applies to the extent rights are held; see
+[LICENSE](../LICENSE). See
+[OpenAI's terms](https://openai.com/policies/row-terms-of-use/) for output ownership
+terms. AI generation does not guarantee exclusivity.
 
-Run `python scripts/verify-readme-assets.py` after any approved asset update to
-confirm active asset hashes and dimensions still match `manifest.json`.
+[manifest.json](manifest.json) records final file dimensions and SHA-256 hashes.
+Ancillary generation metadata was removed while preserving the PNG image data.

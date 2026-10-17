@@ -1,0 +1,134 @@
+name: braincore
+
+x-braincore-image: &braincore-image
+  image: ${BRAINCORE_IMAGE:-braincore:2.0.0-full}
+
+x-braincore-database-environment: &braincore-database-environment
+  BRAINCORE_DATABASE_URL: postgresql://braincore:${BRAINCORE_DATABASE_PASSWORD}@postgres:5432/braincore
+
+x-braincore-worker-environment: &braincore-worker-environment
+  <<: *braincore-database-environment
+  BRAINCORE_EMBEDDER_URL: ${BRAINCORE_EMBEDDER_URL:-http://embedder:8080}
+  BRAINCORE_EMBEDDING_MODEL: ${BRAINCORE_EMBEDDING_MODEL:-feature-hash-v1}
+  BRAINCORE_EMBEDDING_PREPROCESSING_REVISION: ${BRAINCORE_EMBEDDING_PREPROCESSING_REVISION:-token-v1}
+  BRAINCORE_EMBEDDING_TIMEOUT_SECONDS: ${BRAINCORE_EMBEDDING_TIMEOUT_SECONDS:-5}
+  BRAINCORE_EMBEDDING_MAX_CONCURRENCY: ${BRAINCORE_EMBEDDING_MAX_CONCURRENCY:-8}
+  BRAINCORE_WORKER_BATCH_SIZE: ${BRAINCORE_WORKER_BATCH_SIZE:-8}
+  BRAINCORE_EMBEDDING_BATCH_SIZE: ${BRAINCORE_EMBEDDING_BATCH_SIZE:-16}
+  BRAINCORE_LLM_BASE_URL: ${BRAINCORE_LLM_BASE_URL:-}
+  BRAINCORE_LLM_API_KEY: ${BRAINCORE_LLM_API_KEY:-}
+  BRAINCORE_LLM_MODEL: ${BRAINCORE_LLM_MODEL:-}
+
+x-braincore-app-environment: &braincore-app-environment
+  <<: *braincore-database-environment
+  BRAINCORE_BOOTSTRAP_ADMIN_KEY: ${BRAINCORE_BOOTSTRAP_ADMIN_KEY}
+  BRAINCORE_EMBEDDER_URL: ${BRAINCORE_EMBEDDER_URL:-http://embedder:8080}
+  BRAINCORE_EMBEDDING_MODEL: ${BRAINCORE_EMBEDDING_MODEL:-feature-hash-v1}
+  BRAINCORE_EMBEDDING_PREPROCESSING_REVISION: ${BRAINCORE_EMBEDDING_PREPROCESSING_REVISION:-token-v1}
+  BRAINCORE_EMBEDDING_TIMEOUT_SECONDS: ${BRAINCORE_EMBEDDING_TIMEOUT_SECONDS:-5}
+  BRAINCORE_EMBEDDING_MAX_CONCURRENCY: ${BRAINCORE_EMBEDDING_MAX_CONCURRENCY:-8}
+  BRAINCORE_EMBEDDING_CACHE_MAX_ENTRIES: ${BRAINCORE_EMBEDDING_CACHE_MAX_ENTRIES:-256}
+  BRAINCORE_EMBEDDING_CACHE_TTL_SECONDS: ${BRAINCORE_EMBEDDING_CACHE_TTL_SECONDS:-60}
+  BRAINCORE_SEARCH_FULL_TEXT_MODE: ${BRAINCORE_SEARCH_FULL_TEXT_MODE:-projection}
+  BRAINCORE_SEARCH_VECTOR_MODE: ${BRAINCORE_SEARCH_VECTOR_MODE:-iterative_hnsw}
+  BRAINCORE_SEARCH_HNSW_EF_SEARCH: ${BRAINCORE_SEARCH_HNSW_EF_SEARCH:-1000}
+  BRAINCORE_SEARCH_HNSW_MAX_SCAN_TUPLES: ${BRAINCORE_SEARCH_HNSW_MAX_SCAN_TUPLES:-20000}
+  BRAINCORE_SEARCH_HNSW_SCAN_MEM_MULTIPLIER: ${BRAINCORE_SEARCH_HNSW_SCAN_MEM_MULTIPLIER:-1}
+  BRAINCORE_SEARCH_DIAGNOSTICS: ${BRAINCORE_SEARCH_DIAGNOSTICS:-false}
+  BRAINCORE_ALLOWED_ORIGINS: ${BRAINCORE_ALLOWED_ORIGINS:-http://127.0.0.1:8787}
+  BRAINCORE_COOKIE_SECURE: ${BRAINCORE_COOKIE_SECURE:-false}
+
+x-braincore-migrate-environment: &braincore-migrate-environment
+  <<: *braincore-database-environment
+  BRAINCORE_BOOTSTRAP_ADMIN_KEY: ${BRAINCORE_BOOTSTRAP_ADMIN_KEY}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: braincore
+      POSTGRES_USER: braincore
+      POSTGRES_PASSWORD: ${BRAINCORE_DATABASE_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U braincore -d braincore"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *braincore-image
+    command: ["braincore-migrate"]
+    restart: "no"
+    environment: *braincore-migrate-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  lexical-backfill:
+    <<: *braincore-image
+    command: ["braincore-lexical-backfill"]
+    restart: "no"
+    environment: *braincore-migrate-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  legacy-lexical-backfill:
+    <<: *braincore-image
+    command: ["braincore-legacy-lexical-backfill"]
+    restart: "no"
+    environment: *braincore-migrate-environment
+    depends_on:
+      lexical-backfill:
+        condition: service_completed_successfully
+
+  embedder:
+    <<: *braincore-image
+    command: ["uvicorn", "braincore_memory.embedder:app", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  worker:
+    <<: *braincore-image
+    command: ["bun", "worker/src/index.ts"]
+    restart: unless-stopped
+    environment: *braincore-worker-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      embedder:
+        condition: service_healthy
+
+  app:
+    <<: *braincore-image
+    command: ["uvicorn", "braincore_memory.api:app", "--host", "0.0.0.0", "--port", "8787", "--no-access-log", "--limit-concurrency", "100"]
+    restart: unless-stopped
+    environment: *braincore-app-environment
+    ports:
+      - "${BRAINCORE_BIND_HOST:-127.0.0.1}:${BRAINCORE_PORT:-8787}:8787"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8787/v1/readiness',headers={'Authorization':'Bearer '+os.environ['BRAINCORE_BOOTSTRAP_ADMIN_KEY']}); urllib.request.urlopen(r,timeout=2)\"",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      legacy-lexical-backfill:
+        condition: service_completed_successfully
+      embedder:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

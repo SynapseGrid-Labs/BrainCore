@@ -1,0 +1,95 @@
+[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "synapsegrid-braincore"
+version = "2.0.0"
+description = "Evidence-native, self-hosted memory for agents and applications"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Trent Doney" }]
+keywords = ["memory", "agents", "evidence", "self-hosted", "pgvector"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "fastapi==0.139.2",
+  "httpx==0.28.1",
+  "psycopg[binary,pool]==3.3.4",
+  "pydantic==2.13.4",
+  "pydantic-settings==2.14.2",
+  "uvicorn[standard]==0.51.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/SynapseGrid-Labs/BrainCore"
+Documentation = "https://github.com/SynapseGrid-Labs/BrainCore#readme"
+Issues = "https://github.com/SynapseGrid-Labs/BrainCore/issues"
+Source = "https://github.com/SynapseGrid-Labs/BrainCore"
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.17.1",
+  "pytest==9.0.3",
+  "pytest-asyncio==1.4.0",
+  "pytest-cov==6.2.1",
+  "respx==0.22.0",
+  "ruff==0.12.7",
+]
+langgraph = [
+  "langgraph>=1.0.10,<2",
+  "langgraph-checkpoint>=4.1.1,<5",
+  "langgraph-sdk>=0.3.15,<0.5",
+]
+
+[project.scripts]
+braincore-migrate = "braincore_memory.migrate:main"
+braincore-lexical-backfill = "braincore_memory.lexical_projection:main"
+braincore-legacy-lexical-backfill = "braincore_memory.legacy_lexical_projection:main"
+braincore-legacy-preflight = "braincore_memory.legacy_preflight:main"
+braincore-legacy-capture = "braincore_memory.legacy_capture:main"
+braincore-legacy-ledger = "braincore_memory.legacy_ledger:main"
+braincore-legacy-objects = "braincore_memory.legacy_objects:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/braincore_memory"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "braincore_memory/migrations"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/migrations", "/assets", "/README.md", "/LICENSE", "/THIRD_PARTY_NOTICES.md"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "S", "ASYNC"]
+ignore = ["B008", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/braincore_memory/client.py" = ["ASYNC109"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["braincore_memory"]
+
+[tool.uv]
+constraint-dependencies = [
+  "langgraph-checkpoint>=4.1.1",
+  "langgraph-sdk>=0.3.15",
+  "urllib3>=2.8.0",
+]

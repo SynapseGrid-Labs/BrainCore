@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: BrainCore README
-    url: https://github.com/SynapseGrid-Labs/BrainCore/blob/main/README.md
-    about: Start here for the public project overview.
-  - name: Security policy
-    url: https://github.com/SynapseGrid-Labs/BrainCore/blob/main/SECURITY.md
-    about: Use this for security-sensitive issues.
+  - name: Security report
+    url: https://github.com/SynapseGrid-Labs/BrainCore/security/advisories/new
+    about: Report vulnerabilities privately; do not open a public issue.

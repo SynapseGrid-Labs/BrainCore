@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "declarationDir": "dist",
+    "rootDir": "packages/typescript/src"
+  },
+  "include": ["packages/typescript/src/index.ts"]
+}

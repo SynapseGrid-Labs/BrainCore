@@ -1,0 +1,26 @@
+[
+  {
+    "id": "synthetic-smoke",
+    "sessions": [
+      {
+        "id": "session-1",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "messages": [
+          {
+            "role": "user",
+            "content": "The benchmark passphrase is copper sunrise."
+          }
+        ]
+      }
+    ],
+    "questions": [
+      {
+        "id": "synthetic-smoke-q1",
+        "question": "What is the benchmark passphrase?",
+        "answer": "copper sunrise",
+        "category": "information_extraction",
+        "evidence_session_ids": ["session-1"]
+      }
+    ]
+  }
+]
