@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const distribution = resolve(dirname(fileURLToPath(import.meta.url)), "../dashboard/dist");
+const dashboardRequire = createRequire(new URL("../dashboard/package.json", import.meta.url));
 const profile = await mkdtemp(join(tmpdir(), "braincore-dashboard-smoke-"));
 const contentTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 const errors = [];
@@ -41,6 +43,20 @@ const server = createServer(async (request, response) => {
 });
 
 try {
+  // Check the actual build output, which is copied intact into the runtime image.
+  const notices = await readFile(join(distribution, "THIRD_PARTY_LICENSES.md"), "utf8");
+  const reactDomManifest = dashboardRequire.resolve("react-dom/package.json");
+  const reactDomRequire = createRequire(reactDomManifest);
+  for (const manifest of [
+    dashboardRequire.resolve("react/package.json"),
+    reactDomManifest,
+    reactDomRequire.resolve("scheduler/package.json"),
+  ]) {
+    const { name, version } = JSON.parse(await readFile(manifest, "utf8"));
+    const license = (await readFile(join(dirname(manifest), "LICENSE"), "utf8")).trim();
+    const section = notices.split(`## ${name} - ${version} (MIT)\n`)[1]?.split("\n## ")[0];
+    assert(section?.includes(license), `The bundle must preserve ${name}'s complete installed license`);
+  }
   await readFile(join(distribution, "index.html"));
   await new Promise((resolve, reject) => {
     server.once("error", reject);
