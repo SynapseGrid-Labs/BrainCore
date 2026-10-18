@@ -6,7 +6,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
-    license: { fileName: "THIRD_PARTY_LICENSES.md" },
+    license: { fileName: "assets/THIRD_PARTY_LICENSES.md" },
   },
   server: { host: "127.0.0.1", port: 5173, proxy: { "/v1": "http://127.0.0.1:8787" } },
 });

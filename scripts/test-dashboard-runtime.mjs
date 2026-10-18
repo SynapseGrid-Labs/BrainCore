@@ -44,7 +44,7 @@ const server = createServer(async (request, response) => {
 
 try {
   // Check the actual build output, which is copied intact into the runtime image.
-  const notices = await readFile(join(distribution, "THIRD_PARTY_LICENSES.md"), "utf8");
+  const notices = await readFile(join(distribution, "assets/THIRD_PARTY_LICENSES.md"), "utf8");
   const reactDomManifest = dashboardRequire.resolve("react-dom/package.json");
   const reactDomRequire = createRequire(reactDomManifest);
   for (const manifest of [
@@ -57,7 +57,9 @@ try {
     const section = notices.split(`## ${name} - ${version} (MIT)\n`)[1]?.split("\n## ")[0];
     assert(section?.includes(license), `The bundle must preserve ${name}'s complete installed license`);
   }
-  await readFile(join(distribution, "index.html"));
+  const index = await readFile(join(distribution, "index.html"), "utf8");
+  assert.match(index, /<link rel="license" href="\/assets\/THIRD_PARTY_LICENSES\.md"\s*\/>/,
+    "The shipped dashboard must expose the license asset through its HTTP-served directory");
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
