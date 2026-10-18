@@ -59,7 +59,8 @@ registry install commands for this version. Build the application image locally.
 Requirements: Docker with Compose, Bun 1.2+ for source builds, Python 3.11+
 and uv for Python tooling, and sufficient disk space for image builds and the
 database. The built TypeScript SDK and MCP server target Node.js 20.19+.
-The container uses Python 3.12 and Bun 1.3.8.
+The container uses Python 3.14 and Bun 1.4.3. CI also uses Bun 1.4.3.
+Avoid Bun 1.3.7 and 1.3.8 because of an [upstream startup hang](https://github.com/oven-sh/bun/issues/26810).
 
 From a source checkout:
 

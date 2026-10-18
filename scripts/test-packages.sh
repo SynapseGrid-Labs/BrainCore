@@ -49,7 +49,7 @@ mkdir "$package_test_dir/bun"
 cd "$package_test_dir/bun"
 bun init --yes >/dev/null
 bun add "$npm_tarball" >/dev/null
-bun x bun@1.3.8 audit
+bun x bun@1.4.3 audit
 node "$repo_dir/scripts/test-cli-runtime.mjs" "$package_test_dir/bun/node_modules/@synapsegrid-labs/braincore/dist/cli.js" "$(command -v bun)"
 bun -e \
   'import { BrainCoreClient } from "@synapsegrid-labs/braincore"; const c = new BrainCoreClient({apiKey:"test"}); if (typeof c.explain !== "function") process.exit(1)'
