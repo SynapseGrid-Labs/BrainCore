@@ -35,7 +35,7 @@ Source = "https://github.com/SynapseGrid-Labs/BrainCore"
 
 [project.optional-dependencies]
 dev = [
-  "mypy==1.17.1",
+  "mypy==2.4.0",
   "pytest==9.0.3",
   "pytest-asyncio==1.4.0",
   "pytest-cov==6.2.1",
