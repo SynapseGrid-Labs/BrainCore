@@ -42,6 +42,5 @@ logs, local infrastructure detection patterns and private review evidence out of
 source and package contents. Follow the repository's protected checks and require
 independent review of the exact commit and built artifacts before publication.
 
-The package installation gate supports the minimum Bun runtime by invoking
-Bun 1.3.8 explicitly for dependency auditing (`bun x bun@1.3.8 audit`).
-This audit tool version is independent of the runtime used for package checks.
+The package installation gate invokes Bun 1.4.3 for dependency auditing
+(`bun x bun@1.4.3 audit`), matching the container and CI runtime.
