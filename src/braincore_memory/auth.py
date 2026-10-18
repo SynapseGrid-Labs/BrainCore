@@ -131,6 +131,13 @@ def require_read(principal: Principal = Depends(authenticate)) -> Principal:
     return principal
 
 
+def require_operation_read(principal: Principal = Depends(authenticate)) -> Principal:
+    """Allow writers to poll their own outcomes; the route enforces actor isolation."""
+    if "write" not in principal.roles:
+        principal.require("read")
+    return principal
+
+
 def require_write(principal: Principal = Depends(authenticate)) -> Principal:
     principal.require("write")
     if principal.session_id is not None and not principal.csrf_valid:

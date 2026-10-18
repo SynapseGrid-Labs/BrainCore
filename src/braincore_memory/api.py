@@ -27,6 +27,7 @@ from .auth import (
     authenticate,
     key_digest,
     require_admin,
+    require_operation_read,
     require_read,
     require_write,
 )
@@ -796,16 +797,23 @@ async def _batch_operation(
                            VALUES (%s,%s,%s,'failed',%s,now())""",
                         (operation_id, principal.tenant_id, index, json.dumps(item_error)),
                     )
-            # An all-failed batch has no queued job to finalize its operation.
+            # Ready reference upserts can finish synchronously without a job.
+            # Account for every terminal item, including validation failures.
             await conn.execute(
                 """UPDATE braincore.operations operation
-                   SET failed_items=items.failed,
-                       state=CASE WHEN items.failed=operation.accepted_items
-                                  THEN 'failed' ELSE operation.state END,
-                       completed_at=CASE WHEN items.failed=operation.accepted_items
+                   SET succeeded_items=items.succeeded,
+                       failed_items=items.failed,
+                       state=CASE WHEN items.succeeded+items.failed=operation.accepted_items
+                                  THEN CASE WHEN items.failed=0 THEN 'succeeded'
+                                            WHEN items.succeeded=0 THEN 'failed'
+                                            ELSE 'partial' END
+                                  ELSE operation.state END,
+                       completed_at=CASE WHEN items.succeeded+items.failed=operation.accepted_items
                                          THEN now() ELSE operation.completed_at END
-                   FROM (SELECT count(*)::int AS failed FROM braincore.operation_items
-                         WHERE operation_id=%s AND tenant_id=%s AND state='failed') items
+                   FROM (SELECT count(*) FILTER (WHERE state='succeeded')::int AS succeeded,
+                                count(*) FILTER (WHERE state='failed')::int AS failed
+                         FROM braincore.operation_items
+                         WHERE operation_id=%s AND tenant_id=%s) items
                    WHERE operation.id=%s AND operation.tenant_id=%s""",
                 (operation_id, principal.tenant_id, operation_id, principal.tenant_id),
             )
@@ -1260,7 +1268,7 @@ async def explain(memory_id: UUID, principal: Principal = Depends(require_read))
 
 @app.get("/v1/operations/{operation_id}")
 async def operation(
-    operation_id: UUID, principal: Principal = Depends(require_read)
+    operation_id: UUID, principal: Principal = Depends(require_operation_read)
 ) -> dict[str, Any]:
     async with connection() as conn:
         cursor = await conn.execute(

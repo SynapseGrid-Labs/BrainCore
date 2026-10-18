@@ -29,6 +29,13 @@ server's current UTC time. These two
 forms have the same temporal effect; batch idempotency still fingerprints the
 raw item fields. Reference updates leave `valid_until` unchanged.
 
+When a stable-reference update keeps the same content, a non-null, ready
+embedding for the configured model and preprocessing revision is preserved.
+Metadata or `valid_from` changes alone do not queue another embedding job, and
+the item succeeds immediately. Missing, non-ready, or incompatible embeddings
+still queue repair work. An accepted content change queues a fresh embedding;
+existing revision requirements for structured or imported memories still apply.
+
 Search normally includes a memory from `valid_from` (inclusive) until
 `valid_until` (exclusive, or no end when null). `as_of` selects the time to check.
 An unknown null start imposes no lower time bound.
@@ -60,6 +67,14 @@ of at most 200 characters; additional scope fields narrow the request together.
 
 The full contract, including administrator key and dashboard-session endpoints,
 is generated in [`openapi.json`](../openapi.json).
+
+`GET /v1/operations/{id}` accepts keys with `read` or `write` permission.
+Non-admin keys can inspect only operations created by that same key, including
+their per-item outcomes. Administrators can inspect any operation in their own
+tenant. Other actors' or tenants' operations return `404`. Polling with a
+write-only key does not grant search or memory read access, or permission to use
+the administrator retry endpoint. Dashboard-session polling is read-only and
+does not require a CSRF token; session mutations still require one.
 
 ## Request budgets
 
@@ -133,9 +148,13 @@ database diagnostics. Authorization failures, connection failures, and unexpecte
 errors still abort the request.
 
 An accepted operation may finish as `partial` without losing successful items.
-If every item fails before work is queued, the `202` response can already report
-`state="failed"`. Replaying the same request with the same idempotency key returns
-the same operation and outcomes. Inspect `/v1/operations/{id}` before retrying.
+When every item finishes synchronously, the `202` response already reports
+`succeeded` if all succeeded, `partial` if successes and failures are mixed, or
+`failed` if all failed. For example, ready stable-reference updates can succeed
+without queued work even when another batch item fails validation. Operations
+with pending work finish after the worker runs. Replaying the same request with
+the same idempotency key returns the same operation and outcomes.
+Inspect `/v1/operations/{id}` before retrying.
 Correct non-retryable failed items and submit only those items as a new request
 with a new key; replaying the original key cannot change its outcome. The
 administrator retry endpoint retries failed worker jobs, and returns
