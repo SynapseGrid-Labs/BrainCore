@@ -1,7 +1,6 @@
 import pytest
 from pydantic import ValidationError
 
-from braincore_memory import BrainCore
 from braincore_memory.api import _request_id
 from braincore_memory.config import Settings
 from braincore_memory.embedder import DIMENSIONS, feature_hash
@@ -78,11 +77,10 @@ def test_remember_evidence_quote_must_be_verbatim() -> None:
 
 
 async def test_documented_langgraph_constructor() -> None:
-    client = BrainCore(api_key="your-write-key")
-    store = BrainCoreStore(client=client, scope_field="user_id")
+    store = BrainCoreStore(api_key="your-write-key", scope_field="user_id")
     try:
         assert store.scope_field == "user_id"
         assert store._scope(("user-42", "preferences")) == {"user_id": "user-42"}
     finally:
-        client.close()
+        store.close()
         await store.aclose()

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .request_validation import validate_storage_values
 
@@ -61,6 +61,13 @@ class RememberRequest(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     reference: MemoryReference | None = None
 
+    @field_validator("content")
+    @classmethod
+    def require_nonblank_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Memory content must contain a non-whitespace character.")
+        return value
+
     @model_validator(mode="after")
     def validate_evidence_quote(self) -> "RememberRequest":
         if self.evidence.quote is not None and self.evidence.quote not in self.content:
@@ -104,6 +111,13 @@ class OperationAccepted(StrictModel):
 class RevisionRequest(StrictModel):
     content: str = Field(min_length=1, max_length=100_000)
     reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("content")
+    @classmethod
+    def require_nonblank_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Memory content must contain a non-whitespace character.")
+        return value
 
 
 class LifecycleRequest(StrictModel):

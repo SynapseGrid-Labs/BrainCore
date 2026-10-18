@@ -40,10 +40,29 @@ class BrainCoreStore(BaseStore):
         if scope_field not in {"project_id", "user_id", "agent_id", "run_id"}:
             raise ValueError("scope_field must be project_id, user_id, agent_id, or run_id")
         self.scope_field = scope_field
-        self.client = client or BrainCore(base_url, api_key)
-        self.async_client = async_client or AsyncBrainCore(base_url, api_key)
-        self._owns_sync = client is None
-        self._owns_async = async_client is None
+        injected = client is not None or async_client is not None
+        self._client = client if injected else BrainCore(base_url, api_key)
+        self._async_client = async_client if injected else AsyncBrainCore(base_url, api_key)
+        self._owns_sync = not injected
+        self._owns_async = not injected
+
+    @property
+    def client(self) -> BrainCore:
+        if self._client is None:
+            raise ValueError(
+                "Synchronous store operations require client=BrainCore(...). "
+                "Inject both client and async_client to use both modes."
+            )
+        return self._client
+
+    @property
+    def async_client(self) -> AsyncBrainCore:
+        if self._async_client is None:
+            raise ValueError(
+                "Asynchronous store operations require async_client=AsyncBrainCore(...). "
+                "Inject both client and async_client to use both modes."
+            )
+        return self._async_client
 
     def close(self) -> None:
         if self._owns_sync:
@@ -147,7 +166,7 @@ class BrainCoreStore(BaseStore):
         return self._item(memory)
 
     def _search(self, op: SearchOp) -> list[SearchItem]:
-        metadata_filter = {"langgraph": {"value": op.filter or {}}}
+        metadata_filter = self._search_metadata_filter(op.filter)
         response = self.client.search(
             op.query,
             self._scope(op.namespace_prefix),
@@ -159,7 +178,7 @@ class BrainCoreStore(BaseStore):
         return [self._item(item, search=True) for item in response["results"]]
 
     async def _asearch(self, op: SearchOp) -> list[SearchItem]:
-        metadata_filter = {"langgraph": {"value": op.filter or {}}}
+        metadata_filter = self._search_metadata_filter(op.filter)
         response = await self.async_client.search(
             op.query,
             self._scope(op.namespace_prefix),
@@ -171,16 +190,36 @@ class BrainCoreStore(BaseStore):
         return [self._item(item, search=True) for item in response["results"]]
 
     @staticmethod
-    def _matches_namespace(namespace: tuple[str, ...], op: ListNamespacesOp) -> bool:
-        for condition in op.match_conditions or ():
-            path = tuple(condition.path)
-            if condition.match_type == "prefix" and namespace[: len(path)] != path:
-                return False
-            if condition.match_type == "suffix" and namespace[-len(path) :] != path:
-                return False
-        return True
+    def _search_metadata_filter(value_filter: dict[str, Any] | None) -> dict[str, Any]:
+        message = (
+            "BrainCoreStore filters support only string values and nonempty nested objects; "
+            "comparison operators, arrays, null, booleans and numbers are unsupported."
+        )
+        if value_filter is None:
+            value_filter = {}
+        if not isinstance(value_filter, dict):
+            raise ValueError(message)
+        try:
+            # Reject cyclic/non-JSON Python objects during batch preflight too.
+            json.dumps(value_filter)
+        except (TypeError, ValueError):
+            raise ValueError(message) from None
+        pending = [value_filter]
+        while pending:
+            current = pending.pop()
+            for key, value in current.items():
+                if not isinstance(key, str) or key.startswith("$"):
+                    raise ValueError(message)
+                if isinstance(value, str):
+                    continue
+                if isinstance(value, dict) and value:
+                    pending.append(value)
+                else:
+                    raise ValueError(message)
+        return {"langgraph": {"value": value_filter}}
 
-    def _list_namespaces(self, op: ListNamespacesOp) -> list[tuple[str, ...]]:
+    @staticmethod
+    def _literal_namespace_prefix(op: ListNamespacesOp) -> tuple[str, ...]:
         prefix = next(
             (
                 tuple(condition.path)
@@ -189,6 +228,26 @@ class BrainCoreStore(BaseStore):
             ),
             (),
         )
+        return prefix[: prefix.index("*")] if "*" in prefix else prefix
+
+    @staticmethod
+    def _matches_namespace(namespace: tuple[str, ...], op: ListNamespacesOp) -> bool:
+        for condition in op.match_conditions or ():
+            path = tuple(condition.path)
+            if len(namespace) < len(path):
+                return False
+            if condition.match_type == "prefix":
+                candidate = namespace[: len(path)]
+            else:
+                candidate = namespace[len(namespace) - len(path) :]
+            if any(
+                part != "*" and part != value for part, value in zip(path, candidate, strict=True)
+            ):
+                return False
+        return True
+
+    def _list_namespaces(self, op: ListNamespacesOp) -> list[tuple[str, ...]]:
+        prefix = self._literal_namespace_prefix(op)
         namespaces: set[tuple[str, ...]] = set()
         offset = 0
         while offset <= MAX_NAMESPACE_SCAN_ITEMS:
@@ -225,14 +284,7 @@ class BrainCoreStore(BaseStore):
         return selected[op.offset : op.offset + op.limit]
 
     async def _alist_namespaces(self, op: ListNamespacesOp) -> list[tuple[str, ...]]:
-        prefix = next(
-            (
-                tuple(condition.path)
-                for condition in op.match_conditions or ()
-                if condition.match_type == "prefix"
-            ),
-            (),
-        )
+        prefix = self._literal_namespace_prefix(op)
         namespaces: set[tuple[str, ...]] = set()
         offset = 0
         while offset <= MAX_NAMESPACE_SCAN_ITEMS:
@@ -331,6 +383,9 @@ class BrainCoreStore(BaseStore):
 
     def batch(self, ops: Iterable[Op]) -> list[Result]:
         operations = list(ops)
+        for operation in operations:
+            if isinstance(operation, SearchOp):
+                self._search_metadata_filter(operation.filter)
         results: list[Result] = [None] * len(operations)
         index = 0
         while index < len(operations):
@@ -360,6 +415,9 @@ class BrainCoreStore(BaseStore):
 
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:
         operations = list(ops)
+        for operation in operations:
+            if isinstance(operation, SearchOp):
+                self._search_metadata_filter(operation.filter)
         results: list[Result] = [None] * len(operations)
         index = 0
         while index < len(operations):

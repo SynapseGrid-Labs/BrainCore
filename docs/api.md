@@ -64,6 +64,12 @@ JSON structure, escaping, and whitespace also consume the byte budget. Arbitrary
 metadata can therefore exceed it, and a lower configured cap can reject otherwise
 valid content.
 
+Native direct memories and revisions must contain a non-whitespace character.
+Blank content returns `422` before an operation or embedding job is accepted;
+blank items in mixed memory batches fail individually. Valid content is stored
+verbatim, including surrounding whitespace. Raw ingestion transcripts retain
+their existing content contract.
+
 Text fields, metadata keys, and nested string values reject NUL (`U+0000`) and
 unpaired Unicode surrogates, which cannot be stored as PostgreSQL text/JSONB.
 Other valid Unicode and supported control characters are preserved. Invalid
