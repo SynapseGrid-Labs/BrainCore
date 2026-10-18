@@ -126,6 +126,10 @@ once and is never stored reversibly. Replaying either request returns
 to confirm creation, then create a replacement or rotate again with a new
 idempotency key using another administrator credential.
 
+API-key creation accepts an omitted or null `expires_at` for a non-expiring key;
+otherwise supply a timezone-aware future timestamp (also checked against database
+time at insertion), and an expired timestamp returns `422`, including on replay.
+
 An administrator cannot rotate the key authenticating the current request:
 `POST /v1/admin/api-keys/{key_id}/rotate` returns
 `409 cannot_rotate_current_key` for that key. This also applies to a dashboard

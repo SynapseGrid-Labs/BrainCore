@@ -448,7 +448,8 @@ async def create_api_key(
             await conn.execute(
                 """INSERT INTO braincore.api_keys
                    (tenant_id,name,prefix,digest,roles,scope,expires_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                   SELECT %s,%s,%s,%s,%s,%s,%s
+                   WHERE %s::timestamptz IS NULL OR %s::timestamptz > statement_timestamp()
                    RETURNING id,name,prefix,roles,scope,created_at,expires_at""",
                 (
                     principal.tenant_id,
@@ -458,18 +459,21 @@ async def create_api_key(
                     sorted(body.roles),
                     json.dumps(body.scope.model_dump(exclude_none=True)) if body.scope else None,
                     body.expires_at,
+                    body.expires_at,
+                    body.expires_at,
                 ),
             )
         ).fetchone()
+        if record is None:
+            # Recheck atomically using database time after any idempotency-lock wait.
+            raise HTTPException(status_code=422, detail="api_key_expiry_not_future")
         await conn.execute(
             """INSERT INTO braincore.audit_events
                (tenant_id,actor_key_id,action,target_type,target_id)
                VALUES (%s,%s,'api_key.create','api_key',%s)""",
             (principal.tenant_id, principal.key_id, record["id"] if record else None),
         )
-        if record is None:
-            raise RuntimeError("API key creation returned no record")
-        safe_record = dict(record) if record is not None else {}
+        safe_record = dict(record)
         await _store_mutation(
             conn, principal, idempotency_key, "api_key.create", request_body, safe_record
         )

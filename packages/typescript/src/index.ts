@@ -69,17 +69,26 @@ export class BrainCoreClient {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const payload = response.status === 204 ? {} : ((await response.json()) as Record<string, unknown>);
     if (!response.ok) {
-      const error = (payload.error ?? {}) as Record<string, unknown>;
+      // Proxies can return HTML, empty bodies or malformed JSON for HTTP errors.
+      // The response status remains useful even when no API envelope is available.
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = undefined;
+      }
+      const isRecord = (value: unknown): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
+      const error = isRecord(payload) && isRecord(payload.error) ? payload.error : {};
       throw new BrainCoreError(
         response.status,
-        String(error.code ?? "http_error"),
-        String(error.message ?? response.statusText),
-        (error.details ?? {}) as Record<string, unknown>,
+        typeof error.code === "string" ? error.code : "http_error",
+        typeof error.message === "string" ? error.message : response.statusText || `HTTP ${response.status}`,
+        isRecord(error.details) ? error.details : {},
       );
     }
-    return payload as T;
+    return (response.status === 204 ? {} : await response.json()) as T;
   }
 
   remember(content: string, scope: Scope, options: Record<string, unknown> = {}): Promise<Record<string, unknown>> {

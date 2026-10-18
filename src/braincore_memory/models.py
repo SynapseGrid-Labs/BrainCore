@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -205,6 +205,21 @@ class ApiKeyCreateRequest(StrictModel):
     roles: set[Literal["read", "write", "admin"]] = Field(min_length=1)
     scope: Scope | None = None
     expires_at: datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def require_future_expiry(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expires_at must be timezone-aware and strictly in the future")
+        try:
+            instant = value.astimezone(UTC)
+        except (OverflowError, ValueError) as error:
+            raise ValueError("expires_at must be representable in UTC") from error
+        if instant <= datetime.now(UTC):
+            raise ValueError("expires_at must be timezone-aware and strictly in the future")
+        return value
 
     @model_validator(mode="after")
     def validate_scope(self) -> "ApiKeyCreateRequest":
