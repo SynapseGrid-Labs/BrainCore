@@ -10,6 +10,13 @@ integration, security, and public-sanitization checks.
 
 Use the frozen installation and development commands in the README. Check the
 OpenAPI document and generated TypeScript contract for drift after API changes.
+
+The type-check and declaration-build scripts invoke the native TypeScript 7
+compiler explicitly. The separate `typescript` 5.x dependency supplies the
+compiler API required by `openapi-typescript`; keep it within that generator's
+peer dependency range. Use `bun run typecheck` rather than calling `tsc` directly,
+because both compiler packages expose that binary name.
+
 Run `scripts/test-packages.sh` for clean artifact installation and run normal
 `npm pack` to exercise preparation hooks. Changes to the database, authentication,
 write outcomes, or compatibility mapping require their relevant integration and

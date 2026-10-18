@@ -48,12 +48,12 @@
     "clean:dist": "node scripts/clean-build.mjs dist",
     "build": "bun run clean && bun run build:ts && bun run build:dashboard",
     "generate:openapi": "uv run python scripts/export-openapi.py && openapi-typescript openapi.json -o packages/typescript/src/schema.ts",
-    "build:ts": "bun build packages/typescript/src/index.ts packages/typescript/src/cli.ts --outdir dist --target node --packages external && bun build integrations/mcp.ts --outfile dist/mcp.js --target node --packages external && tsc -p tsconfig.build.json",
+    "build:ts": "bun build packages/typescript/src/index.ts packages/typescript/src/cli.ts --outdir dist --target node --packages external && bun build integrations/mcp.ts --outfile dist/mcp.js --target node --packages external && node scripts/typescript-native.mjs -p tsconfig.build.json",
     "build:dashboard": "bun run --cwd dashboard build",
     "test": "bun test",
     "check:public": "bash scripts/check-public-tree.sh",
     "prepack": "bun run generate:openapi && bun run clean:dist && bun run build:ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && bun run --cwd dashboard typecheck",
+    "typecheck": "node scripts/typescript-native.mjs -p tsconfig.json --noEmit && bun run --cwd dashboard typecheck",
     "worker": "bun worker/src/index.ts"
   },
   "dependencies": {
@@ -65,7 +65,8 @@
   "devDependencies": {
     "@types/bun": "1.3.14",
     "openapi-typescript": "7.13.0",
-    "typescript": "7.0.2"
+    "typescript": "5.9.2",
+    "typescript-native": "npm:typescript@7.0.2"
   },
   "overrides": {
     "@hono/node-server": "2.1.1",
