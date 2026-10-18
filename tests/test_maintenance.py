@@ -9,6 +9,7 @@ import httpx
 import psycopg
 import pytest
 from fastapi import HTTPException
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -123,6 +124,53 @@ def _body(conn: psycopg.Connection[Any], **fields: Any) -> StaleDemotionRequest:
         destination_database=conn.info.dbname,
         **fields,
     )
+
+
+def _assert_memory_scope_indexes(conn: psycopg.Connection[Any]) -> None:
+    expected = {
+        "memories_legacy_scope_idx": ["tenant_id", "object_type", "legacy_scope_path", "state"],
+        "memories_compat_project_scope_idx": ["tenant_id", "object_type", "project_id", "state"],
+    }
+    indexes = {
+        row["name"]: row
+        for row in conn.execute(
+            """SELECT x.relname AS name,am.amname AS method,i.indisvalid,i.indisready,
+            pg_get_expr(i.indpred,i.indrelid) AS predicate,
+            pg_get_expr(i.indexprs,i.indrelid) AS expressions,
+            pg_get_indexdef(i.indexrelid) AS definition,
+            ARRAY(SELECT a.attname FROM unnest(i.indkey) WITH ORDINALITY k(attnum,ord)
+              LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
+              WHERE k.ord<=i.indnkeyatts ORDER BY k.ord) AS columns,
+            ARRAY(SELECT n.nspname || '.' || o.opcname
+              FROM unnest(i.indclass) WITH ORDINALITY k(opclass,ord)
+              JOIN pg_opclass o ON o.oid=k.opclass
+              JOIN pg_namespace n ON n.oid=o.opcnamespace
+              ORDER BY k.ord) AS opclasses
+            FROM pg_index i JOIN pg_class x ON x.oid=i.indexrelid
+            JOIN pg_am am ON am.oid=x.relam
+            WHERE i.indrelid='braincore.memories'::regclass
+              AND x.relnamespace='braincore'::regnamespace AND x.relname=ANY(%s)""",
+            (list(expected),),
+        )
+    }
+    for name, columns in expected.items():
+        index = indexes.get(name)
+        assert index is not None, f"Missing scope index: {name}"
+        assert (
+            index["method"] == "btree"
+            and index["indisvalid"]
+            and index["indisready"]
+            and index["predicate"] is None
+            and index["expressions"] is None
+            and index["columns"] == columns
+            and index["opclasses"]
+            == [
+                "pg_catalog.uuid_ops",
+                "pg_catalog.text_ops",
+                "pg_catalog.text_pattern_ops",
+                "pg_catalog.text_ops",
+            ]
+        ), f"Invalid scope index {name}: {index}"
 
 
 def test_status_checks_native_schema_manifest_and_primary_tenant(
@@ -329,27 +377,63 @@ def test_unchanged_uuid_pages_progress_and_keep_fixed_cutoff(typed_source: dict[
         (principal.tenant_id, None, None, None, None, 2),
     ).fetchone()["QUERY PLAN"][0]["Plan"]
     assert plan["Node Type"] == "Limit" and plan["Plan Rows"] <= 2
-    with conn.transaction():
-        conn.execute("SET LOCAL enable_seqscan=off")
-        predicate_plan = conn.execute(
-            "EXPLAIN (FORMAT JSON) SELECT id FROM braincore.memories "
-            "WHERE tenant_id=%s AND object_type='memory'",
+    # Statistics and other valid tenant indexes can change the chosen plan.
+    # Check both required scope indexes directly, including their key semantics.
+    _assert_memory_scope_indexes(conn)
+
+
+@pytest.mark.parametrize(
+    ("name", "scope_column"),
+    [
+        ("memories_legacy_scope_idx", "legacy_scope_path"),
+        ("memories_compat_project_scope_idx", "project_id"),
+    ],
+)
+@pytest.mark.parametrize("drift", ["missing", "reordered"])
+def test_scope_index_contract_rejects_schema_drift(
+    typed_source: dict[str, Any], name: str, scope_column: str, drift: str
+) -> None:
+    conn = typed_source["target"]
+    _assert_memory_scope_indexes(conn)
+    with conn.transaction(force_rollback=True):
+        conn.execute(sql.SQL("DROP INDEX {}").format(sql.Identifier("braincore", name)))
+        if drift == "reordered":
+            conn.execute(
+                sql.SQL(
+                    "CREATE INDEX {} ON braincore.memories "
+                    "(object_type,tenant_id,{} text_pattern_ops,state)"
+                ).format(sql.Identifier(name), sql.Identifier(scope_column))
+            )
+        with pytest.raises(AssertionError, match=name):
+            _assert_memory_scope_indexes(conn)
+    _assert_memory_scope_indexes(conn)
+
+
+@pytest.mark.parametrize("index_scans", [True, False], ids=["index-plans", "heap-plan"])
+def test_scope_index_contract_allows_alternative_query_plans(
+    typed_source: dict[str, Any], index_scans: bool
+) -> None:
+    conn, principal = _prepare(typed_source)
+    memory = _seed(conn, principal)
+    with conn.transaction(force_rollback=True):
+        # A covering tenant/type index is another legitimate planner choice.
+        conn.execute(
+            "CREATE INDEX maintenance_scope_covering_test_idx ON braincore.memories "
+            "(tenant_id,object_type) INCLUDE (id)"
+        )
+        if index_scans:
+            conn.execute("SET LOCAL enable_seqscan=off")
+        else:
+            conn.execute("SET LOCAL enable_indexscan=off")
+            conn.execute("SET LOCAL enable_indexonlyscan=off")
+            conn.execute("SET LOCAL enable_bitmapscan=off")
+        rows = conn.execute(
+            "SELECT id FROM braincore.memories WHERE tenant_id=%s AND object_type='memory'",
             (principal.tenant_id,),
-        ).fetchone()["QUERY PLAN"][0]["Plan"]
-
-    def plan_nodes(node: dict[str, Any]) -> Iterator[dict[str, Any]]:
-        yield node
-        for child in node.get("Plans", []):
-            yield from plan_nodes(child)
-
-    indexed = [
-        n
-        for n in plan_nodes(predicate_plan)
-        if n.get("Index Name") in {"memories_legacy_scope_idx", "memories_compat_project_scope_idx"}
-    ]
-    assert indexed
-    assert "tenant_id =" in indexed[0]["Index Cond"]
-    assert "object_type =" in indexed[0]["Index Cond"]
+        ).fetchall()
+        assert {row["id"] for row in rows} == {memory}
+        _assert_memory_scope_indexes(conn)
+    _assert_memory_scope_indexes(conn)
 
 
 def test_late_invalid_subtype_rolls_back_page_and_run_receipt(typed_source: dict[str, Any]) -> None:
