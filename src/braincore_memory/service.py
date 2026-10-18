@@ -272,7 +272,8 @@ async def remember_one(
         await conn.execute(
             """UPDATE braincore.memories
                SET content=%s,dedupe_key=%s,project_id=%s,user_id=%s,agent_id=%s,run_id=%s,
-                   scope=%s,metadata=%s,embedding_state='pending',updated_at=now(),
+                   scope=%s,metadata=%s,valid_from=COALESCE(%s,valid_from),
+                   embedding_state='pending',updated_at=now(),
                    embedding=CASE WHEN %s THEN NULL ELSE embedding END,
                    embedding_model=CASE WHEN %s THEN NULL ELSE embedding_model END,
                    embedding_preprocessing_revision=CASE WHEN %s THEN NULL
@@ -287,6 +288,7 @@ async def remember_one(
                 run_id,
                 json.dumps(request.scope.model_dump(exclude_none=True)),
                 json.dumps(request.metadata),
+                request.valid_from,
                 content_changed,
                 content_changed,
                 content_changed,

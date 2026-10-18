@@ -21,6 +21,19 @@ omit `scope` when resolving a reference because their credential supplies it;
 tenant-wide admin keys must provide `scope` to avoid ambiguous or cross-scope
 reference lookup.
 
+For a stable-reference write, an explicit non-null `valid_from` sets the memory's
+validity start on creation or update, including updates that keep the same
+content. Omitting `valid_from` or sending `null` preserves an existing reference's
+start time, including an unknown null start; a new memory defaults to the
+server's current UTC time. These two
+forms have the same temporal effect; batch idempotency still fingerprints the
+raw item fields. Reference updates leave `valid_until` unchanged.
+
+Search normally includes a memory from `valid_from` (inclusive) until
+`valid_until` (exclusive, or no end when null). `as_of` selects the time to check.
+An unknown null start imposes no lower time bound.
+`include_inactive=true` without `as_of` bypasses that temporal filtering.
+
 MCP `braincore_remember`, `braincore_ingest`, and `braincore_search` require at
 least one explicit `project_id`, `user_id`, `agent_id`, or `run_id`, including
 when using an administrator key. Their published tool schemas enforce the same
