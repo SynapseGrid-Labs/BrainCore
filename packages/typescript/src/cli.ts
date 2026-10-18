@@ -22,26 +22,91 @@ function randomSecret(prefix: string): string {
 
 function parseEnv(content: string): LocalConfig {
   const config: LocalConfig = {};
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const separator = trimmed.indexOf("=");
-    if (separator > 0) config[trimmed.slice(0, separator)] = trimmed.slice(separator + 1);
+  // Keep the source file intact when saving. This parser is only for local CLI
+  // reads and the presence of defaults, including exported and multiline values.
+  const assignments = /(?:^|\n)[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(?:"((?:\\[\s\S]|[^"\\])*)"|'((?:\\[\s\S]|[^'\\])*)'|([^\r\n]*))/g;
+  for (const match of content.matchAll(assignments)) {
+    const [, key, doubleQuoted, singleQuoted, unquoted] = match;
+    if (singleQuoted !== undefined) {
+      config[key] = singleQuoted.replace(/\\'/g, "'");
+    } else {
+      const value = doubleQuoted !== undefined
+        ? doubleQuoted.replace(/\\([\\"$nrt])/g, (_escape, char: string) => ({ "\\": "\\", '"': '"', $: "\0", n: "\n", r: "\r", t: "\t" })[char]!)
+        : unquoted.replace(/[ \t]+#.*$/, "").trim();
+      config[key] = interpolateEnv(value, config).replace(/\0/g, "$");
+    }
   }
   return config;
 }
 
-async function loadConfig(stateDir = defaultStateDir): Promise<LocalConfig> {
+function interpolateEnv(value: string, config: LocalConfig): string {
+  let result = "";
+  for (let index = 0; index < value.length;) {
+    if (value[index] !== "$") {
+      result += value[index++];
+      continue;
+    }
+    if (value[index + 1] === "$") {
+      result += "$";
+      index += 2;
+      continue;
+    }
+    const braced = value[index + 1] === "{";
+    let end = index + (braced ? 2 : 1);
+    const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(value.slice(end))?.[0];
+    if (!name) {
+      result += value[index++];
+      continue;
+    }
+    end += name.length;
+    const resolved = process.env[name] ?? config[name];
+    if (!braced) {
+      result += resolved ?? "";
+      index = end;
+      continue;
+    }
+    const operator = /^(?::?[-+?])/.exec(value.slice(end))?.[0];
+    const argumentStart = end + (operator?.length ?? 0);
+    end = argumentStart;
+    let depth = 1;
+    while (end < value.length && depth) {
+      if (value[end] === "{" && value[end - 1] === "$") depth++;
+      if (value[end] === "}") depth--;
+      if (depth) end++;
+    }
+    if (depth || (!operator && value[argumentStart] !== "}")) throw new Error(`Invalid configuration interpolation for ${name}`);
+    const present = resolved !== undefined && (!operator?.startsWith(":") || resolved !== "");
+    if (operator?.endsWith("?") && !present) throw new Error(`Required configuration variable ${name} is missing`);
+    const argument = value.slice(argumentStart, end);
+    result += operator?.endsWith("+")
+      ? (present ? interpolateEnv(argument, config) : "")
+      : (present ? resolved! : interpolateEnv(argument, config));
+    index = end + 1;
+  }
+  return result;
+}
+
+function envLiteral(value: string): string {
+  if (value.includes("\0")) throw new Error("Configuration values cannot contain NUL");
+  if (/^[A-Za-z0-9_./:@%+=,-]*$/.test(value)) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")}"`;
+}
+
+async function loadEnv(stateDir: string): Promise<string> {
   try {
-    return parseEnv(await readFile(join(stateDir, ".env"), "utf8"));
+    return await readFile(join(stateDir, ".env"), "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
     throw error;
   }
 }
 
+async function loadConfig(stateDir = defaultStateDir): Promise<LocalConfig> {
+  return parseEnv(await loadEnv(stateDir));
+}
+
 function clientFrom(config: LocalConfig): BrainCoreClient {
-  const apiKey = process.env.BRAINCORE_API_KEY ?? config.BRAINCORE_BOOTSTRAP_ADMIN_KEY;
+  const apiKey = process.env.BRAINCORE_API_KEY ?? process.env.BRAINCORE_BOOTSTRAP_ADMIN_KEY ?? config.BRAINCORE_BOOTSTRAP_ADMIN_KEY;
   const baseUrl = process.env.BRAINCORE_URL ?? config.BRAINCORE_URL ?? "http://127.0.0.1:8787";
   if (!apiKey) throw new Error("BRAINCORE_API_KEY is required; run `braincore up` first");
   return new BrainCoreClient({ baseUrl, apiKey });
@@ -112,26 +177,36 @@ async function up(options: { stateDir: string }): Promise<void> {
   const stateDir = resolve(options.stateDir);
   const envPath = join(stateDir, ".env");
   await mkdir(stateDir, { recursive: true, mode: 0o700 });
-  const existing = await loadConfig(stateDir);
-  const created = !existing.BRAINCORE_BOOTSTRAP_ADMIN_KEY;
-  const config: LocalConfig = {
+  const existingContent = await loadEnv(stateDir);
+  const existing = parseEnv(existingContent);
+  const created = existing.BRAINCORE_BOOTSTRAP_ADMIN_KEY === undefined && process.env.BRAINCORE_BOOTSTRAP_ADMIN_KEY === undefined;
+  const defaults: LocalConfig = {
     BRAINCORE_DATABASE_PASSWORD:
-      existing.BRAINCORE_DATABASE_PASSWORD ?? randomSecret("bcdb_"),
+      randomSecret("bcdb_"),
     BRAINCORE_BOOTSTRAP_ADMIN_KEY:
-      existing.BRAINCORE_BOOTSTRAP_ADMIN_KEY ?? randomSecret("bck_"),
-    BRAINCORE_BIND_HOST: existing.BRAINCORE_BIND_HOST ?? "127.0.0.1",
-    BRAINCORE_PORT: existing.BRAINCORE_PORT ?? "8787",
-    BRAINCORE_URL: existing.BRAINCORE_URL ?? "http://127.0.0.1:8787",
-    BRAINCORE_ALLOWED_ORIGINS:
-      existing.BRAINCORE_ALLOWED_ORIGINS ?? "http://127.0.0.1:8787",
-    BRAINCORE_COOKIE_SECURE: existing.BRAINCORE_COOKIE_SECURE ?? "false",
-    BRAINCORE_LLM_BASE_URL: existing.BRAINCORE_LLM_BASE_URL ?? "",
-    BRAINCORE_LLM_API_KEY: existing.BRAINCORE_LLM_API_KEY ?? "",
-    BRAINCORE_LLM_MODEL: existing.BRAINCORE_LLM_MODEL ?? "",
+      randomSecret("bck_"),
+    BRAINCORE_BIND_HOST: "127.0.0.1",
+    BRAINCORE_PORT: "8787",
+    BRAINCORE_URL: "http://127.0.0.1:8787",
+    BRAINCORE_ALLOWED_ORIGINS: "http://127.0.0.1:8787",
+    BRAINCORE_COOKIE_SECURE: "false",
+    BRAINCORE_LLM_BASE_URL: "",
+    BRAINCORE_LLM_API_KEY: "",
+    BRAINCORE_LLM_MODEL: "",
   };
-  const content = `${Object.entries(config)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n")}\n`;
+  const missing = Object.entries(defaults)
+    .filter(([key]) => existing[key] === undefined)
+    .map(([key, value]) => `${key}=${envLiteral(process.env[key] ?? value)}\n`)
+    .join("");
+  const content = existingContent + (existingContent && !existingContent.endsWith("\n") ? "\n" : "") + missing;
+  const config = parseEnv(content);
+  try {
+    // writeFile's mode only applies to a new file, including when the existing
+    // file is empty. Protect existing configuration before adding credentials.
+    await chmod(envPath, 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   await writeFile(envPath, content, { encoding: "utf8", mode: 0o600 });
   await chmod(envPath, 0o600);
   const composePath = join(packageRoot, "compose.yaml");
@@ -150,7 +225,7 @@ async function up(options: { stateDir: string }): Promise<void> {
     command,
     packageRoot,
   );
-  console.log(`BrainCore is ready at ${config.BRAINCORE_URL}`);
+  console.log(`BrainCore is ready at ${process.env.BRAINCORE_URL ?? config.BRAINCORE_URL}`);
   if (created) {
     console.log("Bootstrap API key (shown once; protect it):");
     console.log(config.BRAINCORE_BOOTSTRAP_ADMIN_KEY);
@@ -160,8 +235,8 @@ async function up(options: { stateDir: string }): Promise<void> {
 async function doctor(options: { stateDir: string }): Promise<void> {
   await spawnChecked(["docker", "version"], packageRoot);
   const config = await loadConfig(resolve(options.stateDir));
-  const response = await fetch(`${config.BRAINCORE_URL ?? "http://127.0.0.1:8787"}/v1/readiness`, {
-    headers: { Authorization: `Bearer ${config.BRAINCORE_BOOTSTRAP_ADMIN_KEY}` },
+  const response = await fetch(`${process.env.BRAINCORE_URL ?? config.BRAINCORE_URL ?? "http://127.0.0.1:8787"}/v1/readiness`, {
+    headers: { Authorization: `Bearer ${process.env.BRAINCORE_BOOTSTRAP_ADMIN_KEY ?? config.BRAINCORE_BOOTSTRAP_ADMIN_KEY}` },
     signal: AbortSignal.timeout(5_000),
   });
   if (!response.ok) throw new Error(`readiness returned HTTP ${response.status}`);

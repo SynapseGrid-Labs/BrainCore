@@ -10,6 +10,13 @@ local image `braincore:2.0.0-full`; `compose.dev.yaml` supplies its build contex
 A packaged CLI lacks that context, so its `up` command needs a prebuilt local
 image or a separately verified `BRAINCORE_IMAGE` override.
 
+`braincore up` preserves existing `.braincore/.env` content and adds only
+missing CLI defaults. Shell overrides for keys already saved apply to that
+invocation; they do not replace the saved values. The stock Compose file inserts
+`BRAINCORE_DATABASE_PASSWORD` into the PostgreSQL URL without URL escaping, so
+manually supplied database passwords must use URL-safe characters. CLI-generated
+passwords already do.
+
 `braincore up` binds to `127.0.0.1` by default, so no domain is needed. For a
 LAN deployment, set `BRAINCORE_BIND_HOST` to the intended interface and set
 `BRAINCORE_ALLOWED_ORIGINS` to the exact dashboard origin. For Internet access,
