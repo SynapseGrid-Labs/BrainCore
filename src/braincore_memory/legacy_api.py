@@ -9,25 +9,32 @@ import anyio
 import psycopg
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from psycopg.rows import dict_row
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
 
 from .auth import Principal, require_write
 from .config import get_settings
 from .legacy_clients import mutate_legacy_object
 from .legacy_types import FIELD_TYPES
 from .legacy_writes import _finish, _prior_receipt, mutate_artifact, mutate_control
+from .models import StrictModel
 
 router = APIRouter()
 CORE_TYPES = {"entity", "fact", "memory", "segment", "episode"}
 
 
-class LegacyMutationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class LegacyMutationRequest(StrictModel):
     object_type: str
     object_id: UUID | None = None
     fields: dict[str, Any] = Field(default_factory=dict, max_length=110)
     action: Literal["upsert", "suppress", "retire", "restore"] = "upsert"
     reason: str = Field(default="legacy client mutation", min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def require_nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Audit reason must contain a non-whitespace character.")
+        return value
 
     @field_validator("object_type")
     @classmethod
@@ -37,8 +44,7 @@ class LegacyMutationRequest(BaseModel):
         return value
 
 
-class LegacyBatchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class LegacyBatchRequest(StrictModel):
     items: list[LegacyMutationRequest] = Field(min_length=1, max_length=20000)
 
 

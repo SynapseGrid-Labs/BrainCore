@@ -16,6 +16,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from .auth import Principal
+from .config import get_settings
 from .legacy_identity import (
     external_memory_id,
     lock_identity,
@@ -320,6 +321,19 @@ def mutate_legacy_object(
             state = existing["state"]
         memory_id = existing["id"] if existing else uuid4()
         changed = existing is None or content != existing["content"]
+        refresh_embedding = changed
+        if existing is not None and existing["state"] != "active" and state == "active":
+            # Inactive edits invalidate vectors without scheduling work. Repair
+            # on activation, including subtype lifecycle/governance changes,
+            # while retaining ready vectors for the current embedding identity.
+            settings = get_settings()
+            refresh_embedding = refresh_embedding or (
+                existing["embedding"] is None
+                or existing["embedding_state"] != "ready"
+                or existing["embedding_model"] != settings.embedding_model
+                or existing["embedding_preprocessing_revision"]
+                != settings.embedding_preprocessing_revision
+            )
         if action == "upsert":
             content_snapshot = hashlib.sha256(content.encode()).digest()
         else:
@@ -527,10 +541,10 @@ def mutate_legacy_object(
                     content_snapshot,
                     changed,
                     changed,
-                    changed,
-                    changed,
-                    changed,
-                    changed,
+                    refresh_embedding,
+                    refresh_embedding,
+                    refresh_embedding,
+                    refresh_embedding,
                 ),
             )
             conn.execute(
@@ -655,7 +669,7 @@ def mutate_legacy_object(
             (operation_id, principal.tenant_id, memory_id),
         ).fetchone()
         assert item is not None
-        if changed and state == "active":
+        if refresh_embedding and state == "active":
             conn.execute(
                 "INSERT INTO braincore.jobs(tenant_id,operation_id,operation_item_id,kind,payload) "
                 "VALUES (%s,%s,%s,'embed_memory',%s)",
