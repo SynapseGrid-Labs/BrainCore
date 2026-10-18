@@ -39,7 +39,7 @@ dev = [
   "pytest==9.0.3",
   "pytest-asyncio==1.4.0",
   "pytest-cov==6.2.1",
-  "respx==0.22.0",
+  "respx==0.23.1",
   "ruff==0.12.7",
 ]
 langgraph = [
