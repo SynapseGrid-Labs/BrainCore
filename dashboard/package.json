@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node ../scripts/typescript-native.mjs --noEmit"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
@@ -14,7 +14,6 @@
     "@vitejs/plugin-react": "6.0.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "typescript": "5.9.2",
     "vite": "8.2.1"
   }
 }
