@@ -35,6 +35,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run build
+      - name: Mount the built dashboard in headless Chrome
+        run: bun run test:dashboard
 
   lint-py:
     name: lint-py

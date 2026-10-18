@@ -51,6 +51,7 @@
     "build:ts": "bun build packages/typescript/src/index.ts packages/typescript/src/cli.ts --outdir dist --target node --packages external && bun build integrations/mcp.ts --outfile dist/mcp.js --target node --packages external && node scripts/typescript-native.mjs -p tsconfig.build.json",
     "build:dashboard": "bun run --cwd dashboard build",
     "test": "bun test",
+    "test:dashboard": "node scripts/test-dashboard-runtime.mjs",
     "check:public": "bash scripts/check-public-tree.sh",
     "prepack": "bun run generate:openapi && bun run clean:dist && bun run build:ts",
     "typecheck": "node scripts/typescript-native.mjs -p tsconfig.json --noEmit && bun run --cwd dashboard typecheck",
