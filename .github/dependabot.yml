@@ -4,6 +4,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # OpenAPI generation requires the TypeScript 5 compiler API.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Commander majors require reviewing the supported Node.js minimum.
+      - dependency-name: commander
+        update-types: ["version-update:semver-major"]
     groups:
       react:
         patterns:

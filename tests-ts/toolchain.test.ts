@@ -16,6 +16,21 @@ function node(args: string[]) {
 }
 
 describe("TypeScript compiler and OpenAPI toolchain", () => {
+  test("the installed compiler API parses and prints types independently of the native CLI", () => {
+    const result = node(["--input-type=module", "--eval", `
+      import ts from "typescript";
+      const source = ts.createSourceFile(
+        "contract.ts", "export interface Contract { value: string }",
+        ts.ScriptTarget.Latest, true, ts.ScriptKind.TS,
+      );
+      if (source.parseDiagnostics.length !== 0) throw new Error("Invalid compiler API output");
+      console.log(ts.createPrinter().printFile(source));
+    `]);
+    expect(result.status).toBe(0);
+    expect(result.output).toContain("export interface Contract");
+    expect(result.output).toContain("value: string");
+  });
+
   test("generates the checked-in client using the compatible compiler API", () => {
     const state = mkdtempSync(join(tmpdir(), "braincore-openapi-"));
     try {
