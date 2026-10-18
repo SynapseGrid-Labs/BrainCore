@@ -58,6 +58,7 @@ from .models import (
     SearchRequest,
     SearchResponse,
 )
+from .request_validation import validation_error_details
 from .service import (
     begin_idempotent_operation,
     canonical_hash,
@@ -289,12 +290,7 @@ async def validation_error(request: Request, exc: RequestValidationError) -> JSO
                 "message": "Request validation failed.",
                 "request_id": getattr(request.state, "request_id", "unknown"),
                 "retryable": False,
-                "details": {
-                    "errors": [
-                        {key: value for key, value in error.items() if key not in {"ctx", "url"}}
-                        for error in exc.errors()
-                    ]
-                },
+                "details": {"errors": validation_error_details(exc.errors())},
             }
         },
     )
@@ -720,12 +716,7 @@ def _item_error(error: PydanticValidationError) -> dict[str, object]:
         "code": "validation_failed",
         "message": "Batch item validation failed.",
         "retryable": False,
-        "details": {
-            "errors": [
-                {key: value for key, value in item.items() if key not in {"ctx", "url"}}
-                for item in error.errors()
-            ]
-        },
+        "details": {"errors": validation_error_details(error.errors())},
     }
 
 
@@ -755,7 +746,9 @@ async def _batch_operation(
             conn,
             principal,
             idempotency_key,
-            body.model_dump(mode="json"),
+            # Preserve malformed raw item keys for the request fingerprint;
+            # JSON-mode serialization rejects surrogate keys before item outcomes.
+            body.model_dump(),
             kind,
             len(body.items),
         )

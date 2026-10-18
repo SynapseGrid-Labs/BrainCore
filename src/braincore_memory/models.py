@@ -4,11 +4,18 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .request_validation import validate_storage_values
+
 
 class StrictModel(BaseModel):
     """Reject misspelled or unsupported fields at every public model boundary."""
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_request_values(cls, value: Any) -> Any:
+        return validate_storage_values(value)
 
 
 class Scope(StrictModel):
@@ -79,6 +86,13 @@ class BatchIngestRequest(StrictModel):
 
 class RawBatchRequest(StrictModel):
     items: list[dict[str, Any]] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_request_values(cls, value: Any) -> Any:
+        # Typed item validation owns failures so a malformed item cannot reject
+        # valid siblings. The raw body is retained for idempotent replay/conflicts.
+        return value
 
 
 class OperationAccepted(StrictModel):

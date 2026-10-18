@@ -190,6 +190,7 @@ async function up(options: { stateDir: string }): Promise<void> {
     BRAINCORE_URL: "http://127.0.0.1:8787",
     BRAINCORE_ALLOWED_ORIGINS: "http://127.0.0.1:8787",
     BRAINCORE_COOKIE_SECURE: "false",
+    BRAINCORE_MAX_BODY_BYTES: "8388608",
     BRAINCORE_LLM_BASE_URL: "",
     BRAINCORE_LLM_API_KEY: "",
     BRAINCORE_LLM_MODEL: "",

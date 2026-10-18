@@ -37,6 +37,7 @@ x-braincore-app-environment: &braincore-app-environment
   BRAINCORE_SEARCH_DIAGNOSTICS: ${BRAINCORE_SEARCH_DIAGNOSTICS:-false}
   BRAINCORE_ALLOWED_ORIGINS: ${BRAINCORE_ALLOWED_ORIGINS:-http://127.0.0.1:8787}
   BRAINCORE_COOKIE_SECURE: ${BRAINCORE_COOKIE_SECURE:-false}
+  BRAINCORE_MAX_BODY_BYTES: ${BRAINCORE_MAX_BODY_BYTES:-8388608}
 
 x-braincore-migrate-environment: &braincore-migrate-environment
   <<: *braincore-database-environment

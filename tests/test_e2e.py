@@ -11,6 +11,7 @@ import psycopg
 import pytest
 
 from braincore_memory.api import app
+from braincore_memory.config import get_settings
 
 from .conftest import ADMIN_KEY, SECOND_KEY, auth_headers, create_second_tenant
 
@@ -419,7 +420,10 @@ async def test_openapi_and_docs_require_authentication_and_large_errors_are_hard
 
     too_large = await client.post(
         "/v1/memories",
-        headers={**auth_headers(idempotency="too-large"), "Content-Length": "2000000"},
+        headers={
+            **auth_headers(idempotency="too-large"),
+            "Content-Length": str(get_settings().max_body_bytes + 1),
+        },
         content=b"{}",
     )
     assert too_large.status_code == 413
@@ -427,7 +431,7 @@ async def test_openapi_and_docs_require_authentication_and_large_errors_are_hard
     assert too_large.headers["cache-control"] == "no-store"
 
     async def oversized_chunks() -> AsyncIterator[bytes]:
-        for _ in range(17):
+        for _ in range(get_settings().max_body_bytes // 65_536 + 1):
             yield b"x" * 65_536
 
     chunked = await client.post(

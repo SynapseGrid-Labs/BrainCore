@@ -90,6 +90,7 @@ try {
   assert.match(generated, /^BRAINCORE_BIND_HOST=127\.0\.0\.1$/m);
   assert.match(generated, /^BRAINCORE_PORT=8787$/m);
   assert.match(generated, /^BRAINCORE_COOKIE_SECURE=false$/m);
+  assert.match(generated, /^BRAINCORE_MAX_BODY_BYTES=8388608$/m);
   await run(["up", "--state-dir", state]);
   assert.equal(await readFile(join(state, ".env"), "utf8"), generated, "repeated up must retain generated credentials and defaults");
   assert.equal((await stat(join(state, ".env"))).mode & 0o777, 0o600);
@@ -111,6 +112,7 @@ try {
     "BRAINCORE_EMBEDDING_CACHE_TTL_SECONDS=21",
     "BRAINCORE_WORKER_BATCH_SIZE=4",
     "BRAINCORE_EMBEDDING_BATCH_SIZE=9",
+    "BRAINCORE_MAX_BODY_BYTES=1048576",
     "BRAINCORE_SEARCH_FULL_TEXT_MODE=canonical",
     "BRAINCORE_SEARCH_VECTOR_MODE=exact",
     "BRAINCORE_SEARCH_HNSW_EF_SEARCH=321",
@@ -143,6 +145,7 @@ try {
     BRAINCORE_EMBEDDING_MAX_CONCURRENCY: "6",
     BRAINCORE_SEARCH_VECTOR_MODE: "iterative_hnsw",
     BRAINCORE_PORT: "9191",
+    BRAINCORE_MAX_BODY_BYTES: "4194304",
     BRAINCORE_URL: "http://127.0.0.1:9191",
     BRAINCORE_BOOTSTRAP_ADMIN_KEY: "bck_synthetic_explicit_bootstrap_key",
   };
@@ -167,6 +170,7 @@ try {
   const firstRunState = join(root, ".braincore");
   const firstRunEnvironment = {
     BRAINCORE_URL: `http://127.0.0.1:${address.port}`,
+    BRAINCORE_MAX_BODY_BYTES: "2097152",
     BRAINCORE_DATABASE_PASSWORD: 'synthetic \\ password $value # "quoted" and \'single\'',
     BRAINCORE_BOOTSTRAP_ADMIN_KEY: 'bck_synthetic_\\$literal$$ # "double" and \'single\'',
     BRAINCORE_LLM_API_KEY: 'synthetic key\nBRAINCORE_IMAGE=must-stay-inside-value\r\t"\\$value',
@@ -174,6 +178,7 @@ try {
   const firstRun = await run(["up", "--state-dir", firstRunState], firstRunEnvironment);
   assert.doesNotMatch(firstRun.stdout, /Bootstrap API key|bck_synthetic|synthetic key/);
   const firstRunContent = await readFile(join(firstRunState, ".env"), "utf8");
+  assert.match(firstRunContent, /^BRAINCORE_MAX_BODY_BYTES=2097152$/m);
   assert.equal((await stat(join(firstRunState, ".env"))).mode & 0o777, 0o600);
   assert.doesNotMatch(firstRunContent, /^BRAINCORE_IMAGE=/m, "newlines in explicit values must not inject configuration assignments");
   await run(["up", "--state-dir", firstRunState]);

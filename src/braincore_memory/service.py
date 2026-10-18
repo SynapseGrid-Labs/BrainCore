@@ -25,6 +25,22 @@ def canonical_hash(value: Any) -> bytes:
     return hashlib.sha256(payload).digest()
 
 
+def _operation_request_hash(kind: str, body: dict[str, Any]) -> bytes:
+    value = {"kind": kind, "body": body}
+    try:
+        # Preserve existing hashes byte-for-byte for all UTF-8-compatible bodies.
+        return canonical_hash(value)
+    except UnicodeEncodeError:
+        # Raw batches include malformed items, even though their text is never
+        # stored. Escape those code points for stable replay/conflict detection.
+        # The NUL prefix cannot occur in canonical JSON and separates this domain
+        # from every valid request, including strings containing literal escapes.
+        payload = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), default=str, ensure_ascii=True
+        ).encode("ascii")
+        return hashlib.sha256(b"\x00braincore-invalid-unicode-request\x00" + payload).digest()
+
+
 def memory_dedupe_hash(
     content: str, scope: dict[str, Any], reference: dict[str, Any] | None = None
 ) -> bytes:
@@ -58,7 +74,7 @@ async def begin_idempotent_operation(
            WHERE tenant_id=%s AND actor_key_id=%s AND key=%s AND expires_at <= now()""",
         (principal.tenant_id, principal.key_id, key),
     )
-    request_hash = canonical_hash({"kind": kind, "body": body})
+    request_hash = _operation_request_hash(kind, body)
     existing_cursor = await conn.execute(
         """SELECT request_hash, operation_id FROM braincore.idempotency_records
            WHERE tenant_id = %s AND actor_key_id=%s AND key = %s

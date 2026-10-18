@@ -32,6 +32,21 @@ optional semantic extraction provider is configured with
 `BRAINCORE_LLM_MODEL`. Direct `remember` and retrieval work without it. When
 TLS is terminated in front of the service, set `BRAINCORE_COOKIE_SECURE=true`.
 
+## HTTP request size
+
+`BRAINCORE_MAX_BODY_BYTES` defaults to `8388608` (8 MiB), with allowed overrides
+from 1,024 to 33,554,432 bytes. Compose passes this setting to the API. Its
+middleware rejects oversized declared lengths and counts received bytes for
+streamed requests, including requests with missing or understated lengths.
+
+The byte budget covers the complete JSON body, including escaped Unicode,
+metadata, and all items in a batch. The default fits one 500,000-character
+ingestion with the bounded scope/source fields even with surrogate-pair JSON
+escaping. Metadata remains subject to the shared cap. Lower overrides can reject
+content that satisfies the character limits. Keep reverse-proxy body limits
+consistent with the intended API budget, and split batches that exceed it; see
+[request budgets](api.md#request-budgets).
+
 ## Health and metrics
 
 - `/v1/health` reports process liveness and requires authentication.

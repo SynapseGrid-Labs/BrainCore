@@ -48,6 +48,37 @@ of at most 200 characters; additional scope fields narrow the request together.
 The full contract, including administrator key and dashboard-session endpoints,
 is generated in [`openapi.json`](../openapi.json).
 
+## Request budgets
+
+The API limits encoded `POST`, `PUT`, and `PATCH` bodies to **8 MiB
+(8,388,608 bytes)** by default. Both `Content-Length` and the bytes actually
+received are checked; an absent or understated length cannot bypass the cap.
+An oversized body returns `413 request_too_large` before the handler accepts work.
+Operators can set `BRAINCORE_MAX_BODY_BYTES` from 1,024 to 33,554,432 bytes.
+
+Each ingestion accepts up to 500,000 Unicode characters; each direct memory
+accepts up to 100,000. The default byte budget accommodates one maximum-length
+ingestion even when supplementary Unicode characters use JSON surrogate-pair
+escapes (12 bytes per character), plus the bounded scope/source fields. Metadata,
+JSON structure, escaping, and whitespace also consume the byte budget. Arbitrary
+metadata can therefore exceed it, and a lower configured cap can reject otherwise
+valid content.
+
+Text fields, metadata keys, and nested string values reject NUL (`U+0000`) and
+unpaired Unicode surrogates, which cannot be stored as PostgreSQL text/JSONB.
+Other valid Unicode and supported control characters are preserved. Invalid
+single requests return `422`; invalid items in a mixed batch receive failed
+outcomes while valid siblings proceed. Validation details include only error
+type, location, and message, without echoing raw inputs or validation context.
+JSON numbers must remain finite after parsing, including in nested metadata;
+`NaN`, infinities, and values such as `1e400` that overflow the parser's numeric
+range receive the same validation treatment.
+
+Batch endpoints accept 1–100 items, each subject to its own content limits, and
+share the same total HTTP byte budget. Split large batches into smaller requests
+with new idempotency keys; the item-count limit does not promise that 100
+maximum-length items fit in one body.
+
 ## Idempotency and partial failure
 
 Every write requires `Idempotency-Key`. SDKs generate a UUID automatically.

@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://127.0.0.1:8787"
     bind_host: str = "127.0.0.1"
     port: int = Field(default=8787, ge=1, le=65535)
-    max_body_bytes: int = Field(default=1_048_576, ge=1024, le=33_554_432)
+    # A 500,000-character ingestion can use 6 MB as JSON surrogate-pair escapes.
+    # Leave room for bounded scope/source fields; metadata still shares this cap.
+    max_body_bytes: int = Field(default=8_388_608, ge=1024, le=33_554_432)
     session_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     cookie_secure: bool = False
 
