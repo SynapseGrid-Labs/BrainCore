@@ -47,6 +47,17 @@ def test_dependabot_keeps_codeql_components_in_one_group():
         assert matches == {"codeql"}, (dependency, matches)
 
 
+def test_dependabot_preserves_supported_compiler_api_and_node_minimum():
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    updates = [item for item in config["updates"] if item["package-ecosystem"] == "bun"]
+    assert len(updates) == 1
+    ignored = updates[0].get("ignore", [])
+    assert {item["dependency-name"] for item in ignored} == {"typescript", "commander"}
+    for item in ignored:
+        assert item.get("update-types") == ["version-update:semver-major"]
+        assert "versions" not in item, "Patch and minor security repairs must remain eligible"
+
+
 def test_required_codeql_context_requires_both_languages():
     workflow = yaml.safe_load((ROOT / ".github/workflows/codeql.yml").read_text())
     analysis = workflow["jobs"]["analyze"]

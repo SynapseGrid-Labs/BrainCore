@@ -17,6 +17,14 @@ compiler API required by `openapi-typescript`; keep it within that generator's
 peer dependency range. Use `bun run typecheck` rather than calling `tsc` directly,
 because both compiler packages expose that binary name.
 
+Dependabot leaves compiler-API and Commander major upgrades for explicit
+compatibility review; their patch and minor updates remain enabled. Review
+TypeScript upgrades against the OpenAPI generator's peer range, and Commander
+upgrades against the supported Node.js minimum. The `typescript-native` npm alias
+is maintained separately: Dependabot's Bun parser skips aliased manifest entries,
+so do not rely on it to propose updates to that native compiler. Keep the alias
+pinned and verify compiler, generation, build, and audit checks when updating it.
+
 Run `scripts/test-packages.sh` for clean artifact installation and run normal
 `npm pack` to exercise preparation hooks. Changes to the database, authentication,
 write outcomes, or compatibility mapping require their relevant integration and

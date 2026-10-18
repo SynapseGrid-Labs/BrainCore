@@ -33,7 +33,8 @@ fi
 mkdir "$package_test_dir/node"
 cd "$package_test_dir/node"
 npm init --yes >/dev/null
-npm install "$npm_tarball" >/dev/null
+# The CI Node matrix must reject dependencies that raise our supported Node floor.
+npm install --engine-strict "$npm_tarball" >/dev/null
 npm audit --audit-level=low
 node --input-type=module -e \
   'import { BrainCoreClient } from "@synapsegrid-labs/braincore"; const c = new BrainCoreClient({apiKey:"test"}); if (typeof c.remember !== "function" || typeof c.waitForOperation !== "function") process.exit(1)'
