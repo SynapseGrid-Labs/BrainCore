@@ -112,6 +112,13 @@ class RevisionRequest(StrictModel):
     content: str = Field(min_length=1, max_length=100_000)
     reason: str = Field(min_length=1, max_length=1000)
 
+    @field_validator("reason")
+    @classmethod
+    def require_nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Audit reason must contain a non-whitespace character.")
+        return value
+
     @field_validator("content")
     @classmethod
     def require_nonblank_content(cls, value: str) -> str:
@@ -123,6 +130,13 @@ class RevisionRequest(StrictModel):
 class LifecycleRequest(StrictModel):
     action: Literal["suppress", "retire", "restore", "promote"]
     reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def require_nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Audit reason must contain a non-whitespace character.")
+        return value
 
 
 class FeedbackRequest(StrictModel):
