@@ -58,7 +58,7 @@
     "worker": "bun worker/src/index.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "commander": "14.0.0",
     "postgres": "3.4.9",
     "zod": "4.4.3"
