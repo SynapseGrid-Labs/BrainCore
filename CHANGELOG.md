@@ -42,6 +42,25 @@ version in the source.
 ### October successor changes
 
 - Corrected root LangGraph searches and retained reference identity during revisions.
+- Split consecutive LangGraph puts into ordered batches of at most 100 items,
+  validate terminal operation outcomes, and report namespace enumeration beyond
+  its documented source-memory limit instead of silently returning an incomplete list.
+- Preserve successful batch items when another item has an expected conflict or
+  database data/constraint failure. Expose sanitized per-item terminal failures;
+  an accepted all-failed batch becomes terminal without waiting for worker jobs.
+- Refuse API-key self-rotation with `409 cannot_rotate_current_key`; another
+  administrator credential is required to rotate the target and invalidate its sessions.
+- Disclose incomplete vector coverage for eligible pending, failed, or missing
+  embeddings as well as incompatible identities. Migration `033_embedding_coverage.sql`
+  adds a partial tenant index; apply its writer-blocking build in a maintenance window.
+- Make CLI restore transactional and leave application writers stopped on restore
+  failure. Backups atomically replace a regular-file destination only after a
+  successful, synchronized dump, preserving the previous backup on failure.
+- Require explicit nonempty scope in the MCP remember, ingest, and search schemas.
+- Clear dashboard session data and one-time issued keys on sign-out, new sign-in,
+  or authentication loss, including failed sign-out requests; ignore stale
+  responses and serialize session-cookie changes. Local clearing does not confirm
+  server revocation or undo already accepted writes.
 - Validate helper relationships, confidence, SQL numeric ranges and UUID arrays
   before acknowledging live compatibility writes. Migration `032` constrains
   helper references and repairs UUID array hydration without rewriting source records.

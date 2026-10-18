@@ -16,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from psycopg import Error, sql
+from psycopg import DataError, Error, IntegrityError, sql
 from psycopg.errors import FeatureNotSupported
 from pydantic import ValidationError as PydanticValidationError
 
@@ -539,6 +539,8 @@ async def rotate_api_key(
     idempotency_key: str = Header(alias="Idempotency-Key"),
     principal: Principal = Depends(require_admin),
 ) -> dict[str, Any]:
+    if key_id == principal.key_id:
+        raise HTTPException(status_code=409, detail="cannot_rotate_current_key")
     raw = f"bck_{secrets.token_urlsafe(32)}"
     async with connection() as conn, conn.transaction():
         request_body = {"key_id": str(key_id)}
@@ -759,17 +761,61 @@ async def _batch_operation(
         )
         if not reused:
             for index, item in enumerate(validated):
-                if item is None:
+                item_error = errors[index]
+                if item is not None:
+                    try:
+                        # PostgreSQL errors abort their transaction. Roll back
+                        # the entire item before storing its terminal outcome.
+                        async with conn.transaction():
+                            if isinstance(item, RememberRequest):
+                                await remember_one(conn, principal, operation_id, index, item)
+                            else:
+                                await enqueue_ingestion_one(
+                                    conn, principal, operation_id, index, item
+                                )
+                    except HTTPException as error:
+                        if error.status_code != 409 or error.detail not in (
+                            "memory_conflict",
+                            "reference_scope_conflict",
+                            "structured_fact_revision_required",
+                        ):
+                            raise
+                        item_error = {
+                            "code": error.detail,
+                            "message": error.detail.replace("_", " ").capitalize(),
+                            "retryable": False,
+                            "details": {},
+                        }
+                    except (DataError, IntegrityError):
+                        # Database diagnostics can contain source content and
+                        # schema details. Only expose a stable, generic outcome.
+                        # Connection/system failures still abort the request.
+                        item_error = {
+                            "code": "batch_item_failed",
+                            "message": "Batch item could not be stored.",
+                            "retryable": False,
+                            "details": {},
+                        }
+                if item_error is not None:
                     await conn.execute(
                         """INSERT INTO braincore.operation_items
                            (operation_id,tenant_id,item_index,state,error,completed_at)
                            VALUES (%s,%s,%s,'failed',%s,now())""",
-                        (operation_id, principal.tenant_id, index, json.dumps(errors[index])),
+                        (operation_id, principal.tenant_id, index, json.dumps(item_error)),
                     )
-                elif isinstance(item, RememberRequest):
-                    await remember_one(conn, principal, operation_id, index, item)
-                else:
-                    await enqueue_ingestion_one(conn, principal, operation_id, index, item)
+            # An all-failed batch has no queued job to finalize its operation.
+            await conn.execute(
+                """UPDATE braincore.operations operation
+                   SET failed_items=items.failed,
+                       state=CASE WHEN items.failed=operation.accepted_items
+                                  THEN 'failed' ELSE operation.state END,
+                       completed_at=CASE WHEN items.failed=operation.accepted_items
+                                         THEN now() ELSE operation.completed_at END
+                   FROM (SELECT count(*)::int AS failed FROM braincore.operation_items
+                         WHERE operation_id=%s AND tenant_id=%s AND state='failed') items
+                   WHERE operation.id=%s AND operation.tenant_id=%s""",
+                (operation_id, principal.tenant_id, operation_id, principal.tenant_id),
+            )
         state = await (
             await conn.execute(
                 "SELECT state FROM braincore.operations WHERE id=%s AND tenant_id=%s",

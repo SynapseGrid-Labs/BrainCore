@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import "./styles.css";
@@ -18,6 +18,14 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string) { super(message); }
+}
+
+class StaleSessionResponse extends Error {}
+
+type SessionRequest = (path: string, options?: RequestInit, csrf?: string) => Promise<Json>;
+
 async function api(path: string, options: RequestInit = {}, csrf?: string): Promise<Json> {
   const response = await fetch(path, {
     ...options,
@@ -29,15 +37,24 @@ async function api(path: string, options: RequestInit = {}, csrf?: string): Prom
       ...options.headers,
     },
   });
-  const body = response.status === 204 ? {} : record(await response.json());
+  let body: Json = {};
+  try { if (response.status !== 204) body = record(await response.json()); } catch {
+    // Authentication loss must clear the session even if an intermediary returns HTML.
+    if (!response.ok) throw new ApiError(`HTTP ${response.status}`, response.status, "");
+    throw new Error("API returned invalid JSON");
+  }
   if (!response.ok) {
     const error = record(body.error);
-    throw new Error(stringValue(error.message) || `HTTP ${response.status}`);
+    throw new ApiError(stringValue(error.message) || `HTTP ${response.status}`, response.status, stringValue(error.code));
   }
   return body;
 }
 
 function App(): React.JSX.Element {
+  const sessionGeneration = useRef(0);
+  const authTransition = useRef(false);
+  const pendingRequests = useRef(new Set<AbortController>());
+  const [authBusy, setAuthBusy] = useState(false);
   const [csrf, setCsrf] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [scopeField, setScopeField] = useState<ScopeField>("user_id");
@@ -60,35 +77,107 @@ function App(): React.JSX.Element {
   const [status, setStatus] = useState("Enter an API key to start a same-origin session.");
 
   const scope = { [scopeField]: scopeValue };
+  const generation = sessionGeneration.current;
 
-  const run = async (work: () => Promise<void>) => {
-    try { await work(); } catch (error) { setStatus(error instanceof Error ? error.message : "Request failed"); }
+  // Invalidate pending reads and writes before clearing any tenant-derived state.
+  const clearSession = () => {
+    sessionGeneration.current += 1;
+    for (const controller of pendingRequests.current) controller.abort();
+    pendingRequests.current.clear();
+    setCsrf("");
+    setApiKey("");
+    setScopeField("user_id");
+    setScopeValue("");
+    setQuery("");
+    setContent("");
+    setResults([]);
+    setSelected(null);
+    setExplanation(null);
+    setRevisionContent("");
+    setActionReason("");
+    setFeedbackRating(1);
+    setFeedbackComment("");
+    setOperationId("");
+    setOperation(null);
+    setKeys([]);
+    setKeyName("");
+    setIssuedKey("");
+    setHealth(null);
+  };
+
+  const run = async (work: (request: SessionRequest, update: (apply: () => void) => void) => Promise<void>) => {
+    // Old rendered handlers cannot start work during a session transition.
+    if (!csrf || authTransition.current || generation !== sessionGeneration.current) return;
+    const request: SessionRequest = async (path, options = {}, token) => {
+      if (generation !== sessionGeneration.current) throw new StaleSessionResponse();
+      const controller = new AbortController();
+      pendingRequests.current.add(controller);
+      try {
+        const body = await api(path, { ...options, signal: controller.signal }, token);
+        if (generation !== sessionGeneration.current) throw new StaleSessionResponse();
+        return body;
+      } finally { pendingRequests.current.delete(controller); }
+    };
+    const update = (apply: () => void) => {
+      if (generation === sessionGeneration.current && !authTransition.current) apply();
+    };
+    try { await work(request, update); } catch (error) {
+      if (generation !== sessionGeneration.current || error instanceof StaleSessionResponse) return;
+      if (error instanceof ApiError && (error.status === 401 || error.code === "csrf_failed")) {
+        clearSession();
+        setStatus("Session expired or authorization was lost. Local session data was cleared. Sign in again.");
+      } else setStatus(error instanceof Error ? error.message : "Request failed");
+    }
   };
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault();
-    await run(async () => {
+    // Serialize cookie-changing requests: aborting fetch cannot undo Set-Cookie.
+    if (authTransition.current || generation !== sessionGeneration.current) return;
+    authTransition.current = true;
+    setAuthBusy(true);
+    const credential = apiKey;
+    clearSession();
+    setStatus("Starting secure session…");
+    try {
       const session = await api("/v1/dashboard/session", {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Idempotency-Key": crypto.randomUUID() },
+        headers: { Authorization: `Bearer ${credential}`, "Idempotency-Key": crypto.randomUUID() },
       });
-      setCsrf(stringValue(session.csrf_token));
-      setApiKey("");
+      const token = stringValue(session.csrf_token);
+      if (!token) throw new Error("Session response did not include a CSRF token.");
+      setCsrf(token);
       setStatus("Secure session active. The API key was cleared from browser state.");
-    });
+    } catch (error) {
+      clearSession();
+      setStatus(error instanceof Error ? error.message : "Sign in failed");
+    } finally {
+      authTransition.current = false;
+      setAuthBusy(false);
+    }
   };
 
-  const logout = async () => run(async () => {
-    await api("/v1/dashboard/session", { method: "DELETE", headers: { "Idempotency-Key": crypto.randomUUID() } }, csrf);
-    setCsrf("");
-    setResults([]);
-    setSelected(null);
-    setStatus("Session closed.");
-  });
+  const logout = async () => {
+    if (authTransition.current || generation !== sessionGeneration.current) return;
+    authTransition.current = true;
+    setAuthBusy(true);
+    const token = csrf;
+    clearSession();
+    setStatus("Local session data cleared. Closing server session…");
+    try {
+      await api("/v1/dashboard/session", { method: "DELETE", headers: { "Idempotency-Key": crypto.randomUUID() } }, token);
+      setStatus("Session closed. Local session data was cleared.");
+    } catch {
+      setStatus("Local session data was cleared. Server sign-out could not be confirmed; its session may remain active until it expires.");
+    } finally {
+      authTransition.current = false;
+      setAuthBusy(false);
+    }
+  };
 
-  const refreshHealth = async () => run(async () => {
-    const [readiness, system] = await Promise.all([api("/v1/readiness"), api("/v1/admin/status")]);
-    setHealth({ readiness, system });
+  const refreshHealth = async () => run(async (request, update) => {
+    const [readiness, system] = await Promise.all([request("/v1/readiness"), request("/v1/admin/status")]);
+    update(() => setHealth({ readiness, system }));
   });
 
   useEffect(() => {
@@ -97,112 +186,134 @@ function App(): React.JSX.Element {
 
   const search = async (event?: React.FormEvent) => {
     event?.preventDefault();
-    await run(async () => {
-      const body = await api("/v1/search", {
+    await run(async (request, update) => {
+      const body = await request("/v1/search", {
         method: "POST",
         body: JSON.stringify({ query: query || null, scope, limit: 25 }),
       });
-      setResults(records(body.results));
-      setStatus(`Search streams: ${JSON.stringify(body.streams)}`);
+      update(() => {
+        setResults(records(body.results));
+        setStatus(`Search streams: ${JSON.stringify(body.streams)}`);
+      });
     });
   };
 
-  const remember = async (mode: "remember" | "ingest") => run(async () => {
-    const body = await api(mode === "remember" ? "/v1/memories" : "/v1/ingestions", {
+  const remember = async (mode: "remember" | "ingest") => run(async (request, update) => {
+    const body = await request(mode === "remember" ? "/v1/memories" : "/v1/ingestions", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ content, scope }),
     }, csrf);
-    setOperationId(stringValue(body.operation_id));
-    setContent("");
-    setStatus(`${mode === "remember" ? "Memory" : "Ingestion"} accepted.`);
+    update(() => {
+      setOperationId(stringValue(body.operation_id));
+      setContent("");
+      setStatus(`${mode === "remember" ? "Memory" : "Ingestion"} accepted.`);
+    });
   });
 
-  const inspect = async (memory: Json) => run(async () => {
-    setSelected(memory);
-    setRevisionContent(stringValue(memory.content));
-    setExplanation(await api(`/v1/memories/${encodeURIComponent(stringValue(memory.id))}/explain`));
+  const inspect = async (memory: Json) => run(async (request, update) => {
+    update(() => {
+      setSelected(memory);
+      setRevisionContent(stringValue(memory.content));
+      setExplanation(null);
+    });
+    const explanation = await request(`/v1/memories/${encodeURIComponent(stringValue(memory.id))}/explain`);
+    update(() => setExplanation(explanation));
   });
 
   const revise = async () => {
     if (!selected) return;
-    await run(async () => {
+    await run(async (request, update) => {
       const memoryId = stringValue(selected.id);
-      const accepted = await api(`/v1/memories/${encodeURIComponent(memoryId)}/revisions`, {
+      const accepted = await request(`/v1/memories/${encodeURIComponent(memoryId)}/revisions`, {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({ content: revisionContent, reason: actionReason }),
       }, csrf);
-      setOperationId(stringValue(accepted.operation_id));
-      setActionReason("");
-      setStatus("Revision accepted; history was preserved and embedding was queued.");
+      update(() => {
+        setOperationId(stringValue(accepted.operation_id));
+        setActionReason("");
+        setStatus("Revision accepted; history was preserved and embedding was queued.");
+      });
     });
   };
 
   const submitFeedback = async () => {
     if (!selected) return;
-    await run(async () => {
+    await run(async (request, update) => {
       const memoryId = stringValue(selected.id);
-      const accepted = await api(`/v1/memories/${encodeURIComponent(memoryId)}/feedback`, {
+      const accepted = await request(`/v1/memories/${encodeURIComponent(memoryId)}/feedback`, {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({ rating: feedbackRating, comment: feedbackComment || null }),
       }, csrf);
-      setOperationId(stringValue(accepted.operation_id));
-      setFeedbackComment("");
-      setStatus("Feedback recorded with an audit-linked operation.");
+      update(() => {
+        setOperationId(stringValue(accepted.operation_id));
+        setFeedbackComment("");
+        setStatus("Feedback recorded with an audit-linked operation.");
+      });
     });
   };
 
   const lifecycle = async (action: string) => {
     if (!selected) return;
-    await run(async () => {
+    await run(async (request, update) => {
       const memoryId = stringValue(selected.id);
-      await api(`/v1/memories/${encodeURIComponent(memoryId)}/lifecycle`, {
+      await request(`/v1/memories/${encodeURIComponent(memoryId)}/lifecycle`, {
         method: "PATCH",
         headers: { "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({ action, reason: actionReason || `Dashboard ${action}` }),
       }, csrf);
-      const refreshed = await api(`/v1/memories/${encodeURIComponent(memoryId)}`);
-      setSelected(refreshed);
-      setActionReason("");
-      setStatus(`Memory ${action} completed with an audit event.`);
+      const refreshed = await request(`/v1/memories/${encodeURIComponent(memoryId)}`);
+      update(() => {
+        setSelected(refreshed);
+        setActionReason("");
+        setStatus(`Memory ${action} completed with an audit event.`);
+      });
     });
   };
 
-  const inspectOperation = async () => run(async () => {
-    setOperation(await api(`/v1/operations/${encodeURIComponent(operationId)}`));
+  const inspectOperation = async () => run(async (request, update) => {
+    const operation = await request(`/v1/operations/${encodeURIComponent(operationId)}`);
+    update(() => setOperation(operation));
   });
 
-  const retryOperation = async () => run(async () => {
-    await api(`/v1/operations/${encodeURIComponent(operationId)}/retry`, {
+  const retryOperation = async () => run(async (request, update) => {
+    await request(`/v1/operations/${encodeURIComponent(operationId)}/retry`, {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
     }, csrf);
-    await inspectOperation();
-    setStatus("Failed operation items were queued for an audited retry.");
+    const operation = await request(`/v1/operations/${encodeURIComponent(operationId)}`);
+    update(() => {
+      setOperation(operation);
+      setStatus("Failed operation items were queued for an audited retry.");
+    });
   });
 
-  const loadKeys = async () => run(async () => {
-    const body = await api("/v1/admin/api-keys");
-    setKeys(records(body.api_keys));
+  const loadKeys = async () => run(async (request, update) => {
+    const body = await request("/v1/admin/api-keys");
+    update(() => setKeys(records(body.api_keys)));
   });
 
-  const createKey = async () => run(async () => {
-    const body = await api("/v1/admin/api-keys", {
+  const createKey = async () => run(async (request, update) => {
+    const body = await request("/v1/admin/api-keys", {
       method: "POST",
       headers: { "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ name: keyName, roles: ["read", "write"], scope }),
     }, csrf);
-    setIssuedKey(stringValue(body.api_key));
-    setKeyName("");
-    await loadKeys();
+    update(() => {
+      setIssuedKey(stringValue(body.api_key));
+      setKeyName("");
+    });
+    const inventory = await request("/v1/admin/api-keys");
+    update(() => setKeys(records(inventory.api_keys)));
   });
 
-  const keyAction = async (keyId: string, action: "revoke" | "rotate") => run(async () => {
-    const body = await api(`/v1/admin/api-keys/${encodeURIComponent(keyId)}/${action}`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }, csrf);
-    if (action === "rotate") setIssuedKey(stringValue(body.api_key));
-    await loadKeys();
+  const keyAction = async (keyId: string, action: "revoke" | "rotate") => run(async (request, update) => {
+    const body = await request(`/v1/admin/api-keys/${encodeURIComponent(keyId)}/${action}`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }, csrf);
+    update(() => { if (action === "rotate") setIssuedKey(stringValue(body.api_key)); });
+    const inventory = await request("/v1/admin/api-keys");
+    update(() => setKeys(records(inventory.api_keys)));
   });
 
   return (
@@ -214,8 +325,8 @@ function App(): React.JSX.Element {
 
       {!csrf ? (
         <section className="panel login"><h2>Connect locally</h2><form onSubmit={login}>
-          <label>API key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" required /></label>
-          <button type="submit">Start secure session</button>
+          <label>API key<input type="password" disabled={authBusy} value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" required /></label>
+          <button disabled={authBusy} type="submit">{authBusy ? "Please wait…" : "Start secure session"}</button>
         </form></section>
       ) : (
         <div className="grid">

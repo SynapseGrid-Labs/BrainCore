@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawn, type ChildProcess } from "node:child_process";
 import { createReadStream } from "node:fs";
-import { access, chmod, mkdir, open, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { access, chmod, lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
@@ -72,6 +72,27 @@ function childCompletion(child: ChildProcess, label: string): Promise<void> {
       else reject(new Error(`${label} exited with ${signal ? `signal ${signal}` : `status ${code}`}`));
     });
   });
+}
+
+async function transferChild(child: ChildProcess, label: string, transfer: Promise<void>): Promise<void> {
+  const completed = childCompletion(child, label);
+  const handlers = new Map<NodeJS.Signals, () => void>();
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      const handler = () => reject(new Error(`${label} interrupted by ${signal}`));
+      handlers.set(signal, handler);
+      process.once(signal, handler);
+    }
+  });
+  try {
+    await Promise.race([Promise.all([completed, transfer]), interrupted]);
+  } catch (error) {
+    child.kill();
+    await completed.catch(() => {});
+    throw error;
+  } finally {
+    for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+  }
 }
 
 async function composeBase(stateDir: string): Promise<{ command: string[]; cwd: string }> {
@@ -151,19 +172,23 @@ async function backup(outputPath: string, options: { stateDir: string }): Promis
   const target = resolve(outputPath);
   await mkdir(dirname(target), { recursive: true });
   const { command, cwd } = await composeBase(options.stateDir);
-  const file = await open(target, "w", 0o600);
-  await file.chmod(0o600);
-  const args = [...command.slice(1), "exec", "-T", "postgres", "pg_dump", "-U", "braincore", "-d", "braincore", "--format=custom", "--no-owner", "--no-privileges"];
-  const child = spawn(command[0], args, { cwd, stdio: ["ignore", "pipe", "inherit"] });
-  const completed = childCompletion(child, "pg_dump");
   try {
-    await Promise.all([completed, pipeline(child.stdout, file.createWriteStream())]);
+    if (!(await lstat(target)).isFile()) throw new Error("backup destination must be a regular file");
   } catch (error) {
-    child.kill();
-    await completed.catch(() => {});
-    throw error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temporary = join(dirname(target), `.${basename(target)}.${crypto.randomUUID()}.tmp`);
+  const file = await open(temporary, "wx", 0o600);
+  try {
+    const args = [...command.slice(1), "exec", "-T", "postgres", "pg_dump", "-U", "braincore", "-d", "braincore", "--format=custom", "--no-owner", "--no-privileges"];
+    const child = spawn(command[0], args, { cwd, stdio: ["ignore", "pipe", "inherit"] });
+    await transferChild(child, "pg_dump", file.writeFile(child.stdout));
+    await file.sync();
+    await file.close();
+    await rename(temporary, target);
   } finally {
     await file.close();
+    await rm(temporary, { force: true });
   }
   console.log(`Encrypted-at-rest storage is your responsibility; protected backup written to ${target}`);
 }
@@ -175,19 +200,14 @@ async function restore(backupPath: string, options: { stateDir: string; confirm:
   const { command, cwd } = await composeBase(options.stateDir);
   await spawnChecked([...command, "stop", "app", "worker"], cwd);
   try {
-    const args = [...command.slice(1), "exec", "-T", "postgres", "pg_restore", "-U", "braincore", "-d", "braincore", "--clean", "--if-exists", "--no-owner", "--no-privileges"];
+    const args = [...command.slice(1), "exec", "-T", "postgres", "pg_restore", "-U", "braincore", "-d", "braincore", "--clean", "--if-exists", "--single-transaction", "--exit-on-error", "--no-owner", "--no-privileges"];
     const child = spawn(command[0], args, { cwd, stdio: ["pipe", "inherit", "inherit"] });
-    const completed = childCompletion(child, "pg_restore");
-    try {
-      await Promise.all([completed, pipeline(createReadStream(source), child.stdin)]);
-    } catch (error) {
-      child.kill();
-      await completed.catch(() => {});
-      throw error;
-    }
-  } finally {
-    await spawnChecked([...command, "up", "-d", "--wait", "worker", "app"], cwd);
+    await transferChild(child, "pg_restore", pipeline(createReadStream(source), child.stdin));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown restore error";
+    throw new Error(`Database restore failed; application services remain stopped. Inspect the error before restarting: ${detail}`);
   }
+  await spawnChecked([...command, "up", "-d", "--wait", "worker", "app"], cwd);
   console.log("BrainCore database restore completed and application services are ready.");
 }
 

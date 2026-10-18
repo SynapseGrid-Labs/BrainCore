@@ -151,10 +151,26 @@ supports bounded range probes for incompatible coverage in the healthy case.
 Migration `003_embedding_refresh_scan.sql` adds a tenant/UUID paging index and
 an index of active embedding jobs for bounded administrative repair. These
 indexes add disk, WAL and write-maintenance cost and share the same planned
-migration/build requirements. Unknown legacy vectors are deliberately not
-assigned an assumed model. Search
-excludes incompatible vectors and discloses degraded vector coverage; eligible
-lexical records and their explanations remain available.
+migration/build requirements.
+
+Migration `033_embedding_coverage.sql` adds a partial tenant index for pending or
+failed embeddings and ready records whose vector is NULL. Together with the
+ready-vector identity index, it supports coverage probes without scanning the
+entire healthy corpus. This is an ordinary transactional index build that can
+block writers: apply it in the planned maintenance window with disk/WAL headroom.
+It changes no canonical content, model label, or preprocessing revision. The
+migration ledger permits a normal rerun without rebuilding an already applied,
+unchanged migration.
+
+Unknown legacy vectors are deliberately not assigned an assumed model. Search
+excludes incompatible vectors and discloses degraded coverage when eligible
+memories have missing, pending, failed, incompatible, or unidentified embeddings.
+This coverage check uses the same tenant, scope, namespace, object-type,
+metadata, lifecycle, and validity predicates as retrieval. Intentionally
+`not_applicable` empty-text rows are exempt. A successful compatible-vector query
+can still return incomplete coverage; its warning and `retrieval_status` remain
+degraded while compatible vector and available lexical results return. Eligible
+lexical records and their explanations remain available during embedding repair.
 
 1. Back up and verify restoration. Stop API traffic and old workers before the
    migration. Keep application/worker/provider revisions pinned together.

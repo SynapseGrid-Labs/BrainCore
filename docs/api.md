@@ -21,6 +21,12 @@ omit `scope` when resolving a reference because their credential supplies it;
 tenant-wide admin keys must provide `scope` to avoid ambiguous or cross-scope
 reference lookup.
 
+MCP `braincore_remember`, `braincore_ingest`, and `braincore_search` require at
+least one explicit `project_id`, `user_id`, `agent_id`, or `run_id`, including
+when using an administrator key. Their published tool schemas enforce the same
+requirement as their handlers. Each supplied value must be a nonempty string
+of at most 200 characters; additional scope fields narrow the request together.
+
 ## Operations
 
 | Method | Path | Purpose |
@@ -53,17 +59,41 @@ API-key creation and rotation are the exception because their secret is shown
 once and is never stored reversibly. Replaying either request returns
 `409 api_key_secret_not_replayable`. If the first response was lost, list keys
 to confirm creation, then create a replacement or rotate again with a new
-idempotency key.
+idempotency key using another administrator credential.
+
+An administrator cannot rotate the key authenticating the current request:
+`POST /v1/admin/api-keys/{key_id}/rotate` returns
+`409 cannot_rotate_current_key` for that key. This also applies to a dashboard
+session created from it. Use a separate administrator credential to rotate the
+target, protect and verify its one-time replacement, then separately retire the
+authorizing credential if needed. Rotation invalidates the target's old secret
+and dashboard sessions. See [key administration](operations.md#key-administration)
+for bootstrap-key configuration.
 
 Dashboard-session creation follows the same one-time-secret rule. Replaying its
 idempotency key returns `409 session_secret_not_replayable`; submit a new login
 request with a new key if the first response was lost.
 
 Complete validation failure returns `422`. A mixed batch is accepted and each
-item reaches a terminal state. Its operation may finish as `partial` without
-losing successful items. Write-side embedding failure preserves evidence,
-marks the item partial, and queues retries. Search exposes each retrieval stream
-as `ok`, `disabled`, or `failed`, including visible fail-open degradation.
+item has its own outcome. Each valid item's database writes run in a savepoint:
+an expected reference/content conflict or a database data/constraint failure
+rolls back that item while allowing other items to proceed. Item failures expose
+stable codes, including `batch_item_failed` for database failures, without raw
+database diagnostics. Authorization failures, connection failures, and unexpected
+errors still abort the request.
+
+An accepted operation may finish as `partial` without losing successful items.
+If every item fails before work is queued, the `202` response can already report
+`state="failed"`. Replaying the same request with the same idempotency key returns
+the same operation and outcomes. Inspect `/v1/operations/{id}` before retrying.
+Correct non-retryable failed items and submit only those items as a new request
+with a new key; replaying the original key cannot change its outcome. The
+administrator retry endpoint retries failed worker jobs, and returns
+`409 operation_not_retryable` when there are no eligible failed jobs.
+
+Write-side embedding failure preserves evidence, marks the item partial, and
+queues retries. Search exposes each retrieval stream as `ok`, `disabled`, or
+`failed`, including visible fail-open degradation.
 
 ## Errors
 
@@ -91,6 +121,15 @@ Degraded results must be evaluated separately from complete retrieval. When
 stage durations in milliseconds and an embedding-cache hit indicator. Durations
 overlap and do not include the full transport/serialization cost; measure HTTP
 or MCP round trips separately.
+
+Vector execution can succeed while coverage is incomplete. Eligible memories
+with pending, failed, missing, incompatible, or unidentified embeddings produce
+a warning and `retrieval_status="degraded"`; compatible vector results and
+available lexical results still return. Coverage uses the same tenant, scope,
+namespace, object-type, metadata, lifecycle, and validity filters as retrieval.
+Explicit `embedding_state="not_applicable"` records with empty source text do
+not count as missing applicable embeddings. Use the bounded administrator refresh
+below and inspect outcomes before treating the corpus as fully covered.
 
 Administrators can POST `{"scope":{"project_id":"example"},"limit":100}` to
 `/v1/admin/embeddings:refresh` with an `Idempotency-Key`. Omit scope for the

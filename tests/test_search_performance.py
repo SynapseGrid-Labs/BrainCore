@@ -775,9 +775,9 @@ async def test_incompatible_coverage_is_disclosed_without_losing_compatible_resu
     assert outcome.degraded
     assert outcome.timings_ms["coverage"] >= 0
     query, parameters, _ = conn.coverage_calls[0]
-    assert query.count("UNION ALL") == 5
-    assert parameters.count(actor.tenant_id) == 6
-    assert parameters.count("alice") == 6
+    assert query.count("UNION ALL") == 6
+    assert parameters.count(actor.tenant_id) == 7
+    assert parameters.count("alice") == 7
     for branch in query.split("UNION ALL"):
         assert "m.tenant_id = %s" in branch
         assert 'm."user_id" = %s' in branch
@@ -876,9 +876,12 @@ async def test_sql_healthy_coverage_uses_empty_index_ranges_without_scanning_the
         nodes = _plan_nodes(plan)
         assert not any(node["Node Type"] == "Seq Scan" for node in nodes)
         index_nodes = [node for node in nodes if node.get("Index Name")]
-        assert len(index_nodes) == 6
+        assert len(index_nodes) == 7
         for node in index_nodes:
-            assert node["Index Name"] == "memories_embedding_identity_idx"
+            assert node["Index Name"] in {
+                "memories_embedding_identity_idx",
+                "memories_embedding_missing_idx",
+            }
             assert node["Actual Rows"] == 0
             assert node.get("Rows Removed by Filter", 0) == 0
 

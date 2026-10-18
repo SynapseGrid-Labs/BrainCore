@@ -21,6 +21,9 @@ from langgraph.store.base import (
 
 from .client import AsyncBrainCore, BrainCore, BrainCoreError
 
+MAX_BATCH_ITEMS = 100
+MAX_NAMESPACE_SCAN_ITEMS = 10_000
+
 
 class BrainCoreStore(BaseStore):
     """Use BrainCore as a durable LangGraph store without bypassing its API."""
@@ -188,17 +191,24 @@ class BrainCoreStore(BaseStore):
         )
         namespaces: set[tuple[str, ...]] = set()
         offset = 0
-        while offset <= 10_000:
+        while offset <= MAX_NAMESPACE_SCAN_ITEMS:
             response = self.client.search(
                 None,
                 self._scope(prefix),
-                limit=100,
+                limit=1 if offset == MAX_NAMESPACE_SCAN_ITEMS else 100,
                 offset=offset,
                 include_inactive=True,
                 reference_namespace_prefix=list(prefix) or None,
                 metadata_filter={"langgraph": {"value": {}}},
             )
             results = response["results"]
+            if offset == MAX_NAMESPACE_SCAN_ITEMS:
+                if results:
+                    raise RuntimeError(
+                        "BrainCore LangGraph namespace listing exceeds 10000 matching memories; "
+                        "narrow the namespace prefix or authenticated key scope."
+                    )
+                break
             namespaces.update(
                 tuple(value)
                 for item in results
@@ -225,17 +235,24 @@ class BrainCoreStore(BaseStore):
         )
         namespaces: set[tuple[str, ...]] = set()
         offset = 0
-        while offset <= 10_000:
+        while offset <= MAX_NAMESPACE_SCAN_ITEMS:
             response = await self.async_client.search(
                 None,
                 self._scope(prefix),
-                limit=100,
+                limit=1 if offset == MAX_NAMESPACE_SCAN_ITEMS else 100,
                 offset=offset,
                 include_inactive=True,
                 reference_namespace_prefix=list(prefix) or None,
                 metadata_filter={"langgraph": {"value": {}}},
             )
             results = response["results"]
+            if offset == MAX_NAMESPACE_SCAN_ITEMS:
+                if results:
+                    raise RuntimeError(
+                        "BrainCore LangGraph namespace listing exceeds 10000 matching memories; "
+                        "narrow the namespace prefix or authenticated key scope."
+                    )
+                break
             namespaces.update(
                 tuple(value)
                 for item in results
@@ -251,6 +268,11 @@ class BrainCoreStore(BaseStore):
             selected = sorted({namespace[: op.max_depth] for namespace in selected})
         return selected[op.offset : op.offset + op.limit]
 
+    @staticmethod
+    def _require_success(completed: dict[str, Any], action: str) -> None:
+        if completed["state"] != "succeeded":
+            raise RuntimeError(f"BrainCore LangGraph {action} ended as {completed['state']}")
+
     def _delete(self, op: PutOp) -> None:
         existing = self._get(GetOp(op.namespace, op.key))
         if existing is None:
@@ -259,7 +281,8 @@ class BrainCoreStore(BaseStore):
         accepted = self.client.suppress(
             str(memory["id"]), "LangGraph delete mapped to audited suppression."
         )
-        self.client.wait_for_operation(str(accepted["operation_id"]))
+        completed = self.client.wait_for_operation(str(accepted["operation_id"]))
+        self._require_success(completed, "delete")
 
     async def _adelete(self, op: PutOp) -> None:
         existing = await self._aget(GetOp(op.namespace, op.key))
@@ -271,28 +294,28 @@ class BrainCoreStore(BaseStore):
         accepted = await self.async_client.suppress(
             str(memory["id"]), "LangGraph delete mapped to audited suppression."
         )
-        await self.async_client.wait_for_operation(str(accepted["operation_id"]))
+        completed = await self.async_client.wait_for_operation(str(accepted["operation_id"]))
+        self._require_success(completed, "delete")
 
     def _put_run(self, operations: list[PutOp]) -> None:
         accepted = self.client.remember_batch([self._remember_item(op) for op in operations])
         completed = self.client.wait_for_operation(str(accepted["operation_id"]))
-        if completed["state"] != "succeeded":
-            raise RuntimeError(f"BrainCore LangGraph batch ended as {completed['state']}")
+        self._require_success(completed, "batch")
         for op in operations:
             memory = self.client.resolve(list(op.namespace), op.key, self._scope(op.namespace))
             if memory.get("state") != "active":
                 restored = self.client.restore(
                     str(memory["id"]), "LangGraph put recreated a suppressed key."
                 )
-                self.client.wait_for_operation(str(restored["operation_id"]))
+                completed = self.client.wait_for_operation(str(restored["operation_id"]))
+                self._require_success(completed, "restore")
 
     async def _aput_run(self, operations: list[PutOp]) -> None:
         accepted = await self.async_client.remember_batch(
             [self._remember_item(op) for op in operations]
         )
         completed = await self.async_client.wait_for_operation(str(accepted["operation_id"]))
-        if completed["state"] != "succeeded":
-            raise RuntimeError(f"BrainCore LangGraph batch ended as {completed['state']}")
+        self._require_success(completed, "batch")
         for op in operations:
             memory = await self.async_client.resolve(
                 list(op.namespace), op.key, self._scope(op.namespace)
@@ -301,7 +324,10 @@ class BrainCoreStore(BaseStore):
                 restored = await self.async_client.restore(
                     str(memory["id"]), "LangGraph put recreated a suppressed key."
                 )
-                await self.async_client.wait_for_operation(str(restored["operation_id"]))
+                completed = await self.async_client.wait_for_operation(
+                    str(restored["operation_id"])
+                )
+                self._require_success(completed, "restore")
 
     def batch(self, ops: Iterable[Op]) -> list[Result]:
         operations = list(ops)
@@ -311,7 +337,7 @@ class BrainCoreStore(BaseStore):
             operation = operations[index]
             if isinstance(operation, PutOp) and operation.value is not None:
                 end = index + 1
-                while end < len(operations):
+                while end < min(len(operations), index + MAX_BATCH_ITEMS):
                     candidate = operations[end]
                     if not isinstance(candidate, PutOp) or candidate.value is None:
                         break
@@ -340,7 +366,7 @@ class BrainCoreStore(BaseStore):
             operation = operations[index]
             if isinstance(operation, PutOp) and operation.value is not None:
                 end = index + 1
-                while end < len(operations):
+                while end < min(len(operations), index + MAX_BATCH_ITEMS):
                     candidate = operations[end]
                     if not isinstance(candidate, PutOp) or candidate.value is None:
                         break

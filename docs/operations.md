@@ -44,10 +44,79 @@ braincore restore-backup ./backups/braincore.dump --confirm
 braincore doctor
 ```
 
-Backups are created with mode `0600` but are not encrypted by BrainCore.
-Encrypt them at rest, restrict access, and periodically test restoration. A
-restore stops the API and worker, replaces the database, and waits for both to
-be ready before returning.
+Run these commands against the intended stack and its protected configuration;
+use `--state-dir <directory>` if it differs from the checkout's `.braincore`.
+Stop or drain any other database writers before restoring. The CLI stops only
+the Compose `app` and `worker` services.
+
+A backup streams into an exclusively created file with mode `0600` beside the
+requested destination. Only a successful `pg_dump`, completed transfer, and file
+synchronization allow it to replace that destination by atomic rename. A failed
+or canceled backup preserves an existing regular-file destination and removes
+the temporary file during normal cleanup. Symlink and nonregular destinations
+are rejected. A process killed without cleanup can leave a private temporary
+file; filesystem crash durability remains the operator's responsibility.
+Backups are not encrypted by BrainCore. Encrypt them at rest, restrict access,
+and periodically test restoration in a disposable stack.
+
+Restore uses `pg_restore --single-transaction --exit-on-error` to clean and
+restore the objects represented in the archive. A restore error rolls back its
+database transaction. Only a successful restore restarts `worker` and `app` and
+waits for readiness before reporting success. Atomic restore can need additional
+database locks and transaction resources; rehearse representative backups before
+operational use.
+
+If restoring or reading the archive fails or is canceled, the command exits
+nonzero and leaves the API and worker stopped. Inspect the failure and verify
+the database before restarting writers; do not restart against a database whose
+recovery state is uncertain. After resolving the failure and verifying the
+database and compatible source revision, restart the source stack explicitly:
+
+```bash
+docker compose --env-file .braincore/.env -f compose.yaml -f compose.dev.yaml up -d --wait worker app
+bun dist/cli.js doctor
+```
+
+Use the same configuration directory and Compose files as the original stack.
+A restart/readiness failure also returns nonzero; it does not establish that all
+services are stopped. Database recovery and accepted-write reconciliation remain
+separate from application restart; see [recovery limits](recovery.md).
+
+## Key administration
+
+Administrator endpoints are described by the [HTTP API](api.md) and
+[`openapi.json`](../openapi.json). Non-admin credentials need a nonempty scope.
+Protect administrator credentials separately from ordinary agent credentials.
+
+The rotation endpoint refuses to rotate the key authenticating its own request
+with `409 cannot_rotate_current_key`, including a dashboard session bound to
+that key. Create or use another administrator credential to rotate the target.
+Store and verify the one-time replacement before separately retiring the
+authorizing credential. The old target secret and its dashboard sessions stop
+working; a replay cannot recover the new secret.
+
+The bootstrap key has a separate configuration path: update
+`BRAINCORE_BOOTSTRAP_ADMIN_KEY` in protected stack configuration and run the
+`migrate` service with that configuration. Its bootstrap step updates the default
+tenant's bootstrap credential and revokes its dashboard sessions when the digest
+changes. Keep the configured value synchronized; a later bootstrap run with an
+older value can reset it again. This is privileged configuration maintenance,
+not self-rotation through the HTTP endpoint.
+
+The dashboard clears session data, form drafts, and in-memory one-time issued
+keys when signing out, starting a new sign-in, or losing authentication. It
+cancels pending session requests, ignores stale responses, and serializes
+sign-in/sign-out requests that change the session cookie. Local data is cleared
+even if an offline connection or failed sign-out request prevents confirmation
+of server revocation.
+
+Local clearing and request cancellation do not prove the server session was
+revoked or roll back writes already accepted by the API. A failed sign-out can
+leave that session active until it expires or is revoked. When revocation is
+needed, have an authorized administrator revoke or rotate its backing API key.
+Inspect accepted writes through the existing operation endpoint
+using an authorized credential before retrying them; see
+[operation outcomes and idempotency](api.md#idempotency-and-partial-failure).
 
 ## Upgrade within the 2.x line
 
@@ -60,7 +129,11 @@ These instructions apply only to BrainCore 2.0 and later releases using the
    verified immutable image if one is available. Do not deploy `latest`.
 4. Run the migration service. The supplied migrations are transactional and
    checksum-verified on restart. Inspect each migration for data and permission
-   changes; compatibility of future 2.x migrations is not guaranteed.
+   changes; compatibility of future 2.x migrations is not guaranteed. Migration
+   `033_embedding_coverage.sql` adds a partial tenant index used to detect missing
+   applicable embeddings. Its ordinary transactional index build can block
+   writers; stop/drain writers for a planned maintenance window and provide
+   disk/WAL headroom. It changes no stored memory content or embedding identity.
 5. Run the native lexical backfill and then the legacy lexical backfill
    services (`braincore-lexical-backfill`, `braincore-legacy-lexical-backfill`) before
    admitting search traffic. Compose waits for it before starting the API;

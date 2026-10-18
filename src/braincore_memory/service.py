@@ -639,6 +639,15 @@ def _incompatible_vector_query(
             )
         )
         parameters.extend([*values, *range_values])
+    # These applicable rows cannot participate in vector retrieval yet. Keep
+    # them in a separate partial index so healthy coverage remains a bounded
+    # empty-index probe, rather than a scan over every compatible memory.
+    queries.append(
+        sql.SQL("""SELECT 1 FROM braincore.memories m
+            WHERE {where} AND (m.embedding_state IN ('pending','failed')
+                OR (m.embedding_state = 'ready' AND m.embedding IS NULL))""").format(where=where)
+    )
+    parameters.extend(values)
     query = sql.SQL("SELECT EXISTS ({ranges}) AS incompatible").format(
         ranges=sql.SQL(" UNION ALL ").join(queries)
     )
@@ -771,7 +780,8 @@ async def search_memories(
                     raise RuntimeError("database returned no embedding coverage result")
                 if coverage["incompatible"]:
                     vector_warnings.append(
-                        "Some eligible memories have incompatible or unidentified embeddings; "
+                        "Some eligible memories have missing, failed, incompatible or "
+                        "unidentified embeddings; "
                         "vector results are incomplete. An administrator must refresh embeddings."
                     )
             except Error:

@@ -17,6 +17,10 @@ const scopeProperties = {
   run_id: { type: "string", minLength: 1, maxLength: 200 },
 } as const;
 
+const scopeRequirement = {
+  anyOf: Object.keys(scopeProperties).map((field) => ({ required: [field] })),
+};
+
 const tools = [
   {
     name: "braincore_remember",
@@ -29,6 +33,7 @@ const tools = [
         source_uri: { type: "string", format: "uri" },
       },
       required: ["content"],
+      ...scopeRequirement,
       additionalProperties: false,
     },
   },
@@ -42,6 +47,7 @@ const tools = [
         ...scopeProperties,
       },
       required: ["content"],
+      ...scopeRequirement,
       additionalProperties: false,
     },
   },
@@ -56,6 +62,7 @@ const tools = [
         limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
       },
       required: ["query"],
+      ...scopeRequirement,
       additionalProperties: false,
     },
   },
