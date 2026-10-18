@@ -15,6 +15,15 @@ Run `scripts/test-packages.sh` for clean artifact installation and run normal
 write outcomes, or compatibility mapping require their relevant integration and
 Compose tests in addition to unit tests.
 
+After dashboard dependency or UI changes, run `bun run build:dashboard` and
+`bun run test:dashboard`. The latter mounts the built dashboard in headless
+Chrome and checks the login screen for browser errors, including incompatible
+React and React DOM versions. Install Google Chrome or set `CHROME_BIN` to a
+Chromium-compatible executable. CI runs this check after the complete build.
+Dependabot groups React, React DOM and their types into one update so compatible
+versions can be reviewed together; the browser check still verifies the actual
+runtime rather than relying on package version declarations alone.
+
 Integration fixtures can truncate tenant data. Use only a disposable PostgreSQL
 instance with a unique Compose project, isolated volumes and a verified test
 connection. Never set `BRAINCORE_E2E=1` against a shared or operational database.
