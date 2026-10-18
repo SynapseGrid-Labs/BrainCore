@@ -7,7 +7,7 @@ const vector = () => [1, ...Array<number>(383).fill(0)];
 const body = (count = 1) => ({
   dimensions: 384,
   model: "feature-hash-v1",
-  preprocessing_revision: "token-v1",
+  preprocessing_revision: "token-v2",
   embeddings: Array.from({ length: count }, vector),
 });
 const spies: Array<{ mockRestore(): void }> = [];
@@ -83,7 +83,7 @@ describe("bounded embedding batches", () => {
       expect(() => validateEmbeddingBatch({ ...body(), embeddings: [[value, ...Array(383).fill(0)]] }, 1)).toThrow();
     }
     for (const overrides of [
-      { model: "different-model" }, { preprocessing_revision: "token-v2" },
+      { model: "different-model" }, { preprocessing_revision: "token-v1" },
       { embeddings: [Array(384).fill(0)] }, { embeddings: [vector(), vector()] },
     ]) {
       expect(() => validateEmbeddingBatch({ ...body(), ...overrides }, 1)).toThrow();
@@ -95,6 +95,21 @@ describe("bounded embedding batches", () => {
     mockProvider(() => { calls += 1; return Response.json(body()); });
     await expect(embeddingsFor(["query"], undefined, AbortSignal.abort())).rejects.toThrow();
     expect(calls).toBe(0);
+  });
+
+  test("per-input limits count Unicode code points consistently with the API/provider", async () => {
+    let calls = 0;
+    mockProvider((init) => {
+      const inputs = JSON.parse(String(init.body)).inputs as string[];
+      expect(inputs).toEqual(["🧠".repeat(100_000)]);
+      calls += 1;
+      return Response.json(body());
+    });
+    expect(await embeddingsFor(["🧠".repeat(100_000)])).toHaveLength(1);
+    for (const invalid of [[], [""], ["x".repeat(100_001)], ["🧠".repeat(100_001)], Array<string>(551).fill("query")]) {
+      await expect(embeddingsFor(invalid)).rejects.toThrow("invalid embedding input batch");
+    }
+    expect(calls).toBe(1);
   });
 });
 

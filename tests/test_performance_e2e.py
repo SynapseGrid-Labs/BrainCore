@@ -76,7 +76,7 @@ async def test_embedding_refresh_is_bounded_audited_and_idempotent(
             if str(memory_id) == outsider:
                 assert model is None and revision is None
             else:
-                assert (model, revision, state) == ("feature-hash-v1", "token-v1", "ready")
+                assert (model, revision, state) == ("feature-hash-v1", "token-v2", "ready")
         assert (
             conn.execute(
                 """SELECT count(*) FROM braincore.audit_events

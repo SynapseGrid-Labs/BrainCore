@@ -25,7 +25,7 @@ const embeddingBatchSize = integerSetting("BRAINCORE_EMBEDDING_BATCH_SIZE", 16, 
 const embeddingConcurrency = integerSetting("BRAINCORE_EMBEDDING_MAX_CONCURRENCY", 8, 1, 64);
 const embeddingTimeoutMs = Number(process.env.BRAINCORE_EMBEDDING_TIMEOUT_SECONDS ?? "5") * 1000;
 const embeddingModel = process.env.BRAINCORE_EMBEDDING_MODEL ?? "feature-hash-v1";
-const preprocessingRevision = process.env.BRAINCORE_EMBEDDING_PREPROCESSING_REVISION ?? "token-v1";
+const preprocessingRevision = process.env.BRAINCORE_EMBEDDING_PREPROCESSING_REVISION ?? "token-v2";
 
 function integerSetting(name: string, fallback: number, min: number, max: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -322,8 +322,11 @@ export function validateEmbeddingBatch(result: unknown, count: number): number[]
 export async function embeddingsFor(
   inputs: string[], baseUrl = embedderUrl, signal?: AbortSignal,
 ): Promise<number[][]> {
-  if (inputs.length === 0 || inputs.length > 100 ||
-      inputs.some((value) => value.length === 0 || value.length > 100_000)) {
+  // Up to 50 grounded statements can overlap. Each accepted 500000-character
+  // statement needs at most 11 UTF-16-safe chunks; requests remain bounded below.
+  if (inputs.length === 0 || inputs.length > 550 ||
+      inputs.some((value) => value.length === 0 ||
+        (value.length > 100_000 && Array.from(value).length > 100_000))) {
     throw new Error("invalid embedding input batch");
   }
   const vectors: number[][] = [];
@@ -355,12 +358,33 @@ export async function embeddingsFor(
   return vectors;
 }
 
+// The API accepts 500000 Unicode characters. Extraction uses a conservative
+// 100000 UTF-16-unit chunk budget within the provider's 100000-codepoint limit.
+// Select statements before splitting so their tails are never lost to the cap.
+function boundedExtraction(candidates: string[]): string[] {
+  return [...new Set(candidates)].slice(0, 50).flatMap((content) => {
+    const chunks: string[] = [];
+    for (let start = 0; start < content.length;) {
+      let end = Math.min(start + 100_000, content.length);
+      // Leave a durable final chunk instead of dropping a one-character tail.
+      if (end < content.length && content.length - end < 8) end = content.length - 8;
+      // Never split a supplementary Unicode character between its surrogates.
+      if (end < content.length && content.charCodeAt(end - 1) >= 0xd800 &&
+          content.charCodeAt(end - 1) <= 0xdbff && content.charCodeAt(end) >= 0xdc00 &&
+          content.charCodeAt(end) <= 0xdfff) end -= 1;
+      chunks.push(content.slice(start, end));
+      start = end;
+    }
+    return chunks;
+  });
+}
+
 export function deterministicExtraction(content: string): string[] {
   const candidates = content
     .split(/(?<=[.!?])\s+|\n+/)
     .map((value) => value.trim())
     .filter((value) => value.length >= 8);
-  return [...new Set(candidates)].slice(0, 50);
+  return boundedExtraction(candidates);
 }
 
 export async function extractContents(
@@ -414,10 +438,9 @@ export async function extractContents(
     .map((item) => (typeof item.content === "string" ? item.content.trim() : ""))
     .filter(
       (value) => value.length >= 8 && content.includes(value),
-    )
-    .slice(0, 50);
+    );
   if (memories.length === 0) throw new Error("LLM endpoint returned no valid memories");
-  return [...new Set(memories)];
+  return boundedExtraction(memories);
 }
 
 function sha256(value: string): Uint8Array {

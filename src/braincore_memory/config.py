@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     bootstrap_admin_key: SecretStr | None = None
     embedder_url: str = "http://127.0.0.1:8080"
     embedding_model: str = Field(default="feature-hash-v1", min_length=1, max_length=200)
-    embedding_preprocessing_revision: str = Field(default="token-v1", min_length=1, max_length=200)
+    embedding_preprocessing_revision: str = Field(default="token-v2", min_length=1, max_length=200)
     embedding_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     embedding_max_concurrency: int = Field(default=8, ge=1, le=64)
     embedding_cache_max_entries: int = Field(default=256, ge=0, le=10_000)

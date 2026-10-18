@@ -14,7 +14,7 @@ def payload(**overrides: Any) -> dict[str, Any]:
     return {
         "dimensions": 384,
         "model": "feature-hash-v1",
-        "preprocessing_revision": "token-v1",
+        "preprocessing_revision": "token-v2",
         "embeddings": [[1.0] + [0.0] * 383],
         **overrides,
     }
@@ -25,7 +25,7 @@ def payload(**overrides: Any) -> dict[str, Any]:
     [
         {"dimensions": 768},
         {"model": "other-model"},
-        {"preprocessing_revision": "token-v2"},
+        {"preprocessing_revision": "token-v1"},
         {"embeddings": []},
         {"embeddings": [[1.0] * 383]},
         {"embeddings": [[0.0] * 384]},
@@ -40,7 +40,7 @@ def payload(**overrides: Any) -> dict[str, Any]:
 def test_rejects_incompatible_and_invalid_vectors(change: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         validate_embeddings(
-            payload(**change), count=1, model="feature-hash-v1", preprocessing_revision="token-v1"
+            payload(**change), count=1, model="feature-hash-v1", preprocessing_revision="token-v2"
         )
 
 
@@ -48,7 +48,7 @@ def test_validates_entire_batch() -> None:
     batch = payload(embeddings=[[1.0] * 384, [0.0] * 384])
     with pytest.raises(ValueError):
         validate_embeddings(
-            batch, count=2, model="feature-hash-v1", preprocessing_revision="token-v1"
+            batch, count=2, model="feature-hash-v1", preprocessing_revision="token-v2"
         )
 
 
@@ -102,7 +102,7 @@ async def test_model_and_preprocessing_changes_do_not_reuse_cached_vectors() -> 
         await client.embed_one("query", tenant_id="tenant")
         settings.embedding_model = "other-model"
         assert not (await client.embed_one("query", tenant_id="tenant")).cache_hit
-        settings.embedding_preprocessing_revision = "token-v2"
+        settings.embedding_preprocessing_revision = "token-v1"
         assert not (await client.embed_one("query", tenant_id="tenant")).cache_hit
         assert calls == 3
     finally:

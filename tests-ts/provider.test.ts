@@ -97,6 +97,86 @@ describe("embedding contract", () => {
       "Bob likes coffee.",
     ]);
   });
+
+  test.each([100_000, 100_001, 150_001, 500_000])(
+    "long deterministic statements preserve all %i input code units",
+    async (size) => {
+      const evidence = "x".repeat(size - 8) + "the tail";
+      const chunks = deterministicExtraction(evidence);
+      expect(chunks.join("")).toBe(evidence);
+      expect(chunks.every((chunk) => chunk.length >= 8 && chunk.length <= 100_000)).toBe(true);
+      const baseUrl = serve(async (request) => {
+        const body = await request.json() as { inputs: string[]; preprocessing_revision: string };
+        expect(body.inputs).toEqual(chunks);
+        return Response.json({
+          dimensions: 384, model: "feature-hash-v1",
+          preprocessing_revision: body.preprocessing_revision,
+          embeddings: body.inputs.map(() => [1, ...Array<number>(383).fill(0)]),
+        });
+      });
+      expect(await embeddingsFor(chunks, baseUrl)).toHaveLength(chunks.length);
+    },
+  );
+
+  test("the 50th selected statement retains every chunk of its long tail", () => {
+    const earlier = Array.from({ length: 49 }, (_, index) => `Earlier statement ${index}.`);
+    const tail = "z".repeat(150_001);
+    const chunks = deterministicExtraction([...earlier, tail, "An unselected statement."].join("\n"));
+    expect(chunks.slice(0, 49)).toEqual(earlier);
+    expect(chunks.slice(49).join("")).toBe(tail);
+    expect(chunks).toHaveLength(51);
+  });
+
+  test("maximum Unicode input preserves supplementary characters at chunk boundaries", () => {
+    // 500000 Unicode characters can require 1000000 UTF-16 code units.
+    for (const evidence of ["a".repeat(99_999) + "🧠".repeat(400_001), "🧠".repeat(500_000)]) {
+      const chunks = deterministicExtraction(evidence);
+      expect(chunks.join("")).toBe(evidence);
+      expect(chunks.length).toBeLessThanOrEqual(100);
+      for (const chunk of chunks) {
+        expect(chunk.length).toBeGreaterThanOrEqual(8);
+        expect(chunk.length).toBeLessThanOrEqual(100_000);
+        expect(evidence.includes(chunk)).toBe(true);
+        expect(chunk).not.toMatch(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/u);
+      }
+    }
+  });
+
+  test("grounded LLM statements use the same bounded verbatim extraction", async () => {
+    const evidence = "a".repeat(99_999) + "🧠" + "z".repeat(50_000);
+    const baseUrl = serve(() => Response.json({
+      choices: [{ message: { content: JSON.stringify({ memories: [{ content: evidence }] }) } }],
+    }));
+    const chunks = await extractContents(evidence, { baseUrl, model: "compatible-model" });
+    expect(chunks.join("")).toBe(evidence);
+    expect(chunks.every((chunk) => chunk.length <= 100_000 && evidence.includes(chunk))).toBe(true);
+  });
+
+  test("overlapping long LLM statements finish through bounded provider batches", async () => {
+    const evidence = "x".repeat(200_050);
+    const statements = Array.from({ length: 50 }, (_, index) => evidence.slice(0, 200_001 + index));
+    const llmUrl = serve(() => Response.json({
+      choices: [{ message: { content: JSON.stringify({ memories: statements.map((content) => ({ content })) }) } }],
+    }));
+    const chunks = await extractContents(evidence, { baseUrl: llmUrl, model: "compatible-model" });
+    expect(chunks).toHaveLength(150);
+    for (let index = 0; index < statements.length; index += 1) {
+      expect(chunks.slice(index * 3, index * 3 + 3).join("")).toBe(statements[index]);
+    }
+    const observed: string[] = [];
+    const embedderUrl = serve(async (request) => {
+      const body = await request.json() as { inputs: string[]; preprocessing_revision: string };
+      expect(body.inputs.length).toBeLessThanOrEqual(100);
+      expect(body.inputs.reduce((size, value) => size + value.length, 0)).toBeLessThanOrEqual(500_000);
+      observed.push(...body.inputs);
+      return Response.json({
+        dimensions: 384, model: "feature-hash-v1", preprocessing_revision: body.preprocessing_revision,
+        embeddings: body.inputs.map(() => [1, ...Array<number>(383).fill(0)]),
+      });
+    });
+    expect(await embeddingsFor(chunks, embedderUrl)).toHaveLength(chunks.length);
+    expect(observed).toEqual(chunks);
+  });
 });
 
 describe("worker invariants", () => {

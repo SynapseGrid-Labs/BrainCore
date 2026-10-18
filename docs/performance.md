@@ -106,12 +106,44 @@ a latency or representative recall threshold by itself.
 
 The API, worker and provider must agree on `BRAINCORE_EMBEDDING_MODEL` and
 `BRAINCORE_EMBEDDING_PREPROCESSING_REVISION`. Defaults are `feature-hash-v1`
-and `token-v1`. The provider receives both in `/embed` requests and must return
+and `token-v2`. The provider receives both in `/embed` requests and must return
 both (the legacy `algorithm` field can identify the model), `dimensions: 384`
 and an embedding for each input in the same order. Vectors must be numeric,
 finite, representable as float32 and nonzero after float32 conversion. Do not
 silently repoint one revision label to different model weights or preprocessing.
 Custom providers need to implement this contract before rollout.
+
+`token-v2` hashes ASCII word tokens plus individual non-ASCII code points and
+adjacent feature pairs, including combining marks and symbols. It folds ASCII
+case only and uses fixed separators, so its output does not depend on the
+Python runtime's Unicode database. Other case differences and canonically
+equivalent Unicode spellings can produce different vectors; no Unicode
+normalization or language-specific segmentation is promised. Nonblank text
+without tokens (or whose features cancel exactly) has a deterministic whole-text
+fallback. This is lexical feature hashing, not a multilingual semantic model.
+The local provider also accepts explicit `token-v1` requests with the original
+ASCII-only behavior for controlled rollback. Its health response identifies the
+default and supported revisions; each embedding response reports the requested
+revision. Do not use `token-v1` for new non-ASCII workloads.
+
+Existing `token-v1` vectors keep their original identity and are excluded from
+`token-v2` vector search until refreshed. Query caches are partitioned by revision.
+When upgrading, remove an old `token-v1` override or change it to `token-v2` in
+both API and worker configuration, upgrade the provider, and perform the bounded
+refresh below. Never relabel stored vectors without recomputing them. For a
+controlled rollback, pin API and worker to `token-v1` together and refresh vectors
+to that revision; canonical content/evidence and lexical search remain available.
+No schema migration is needed solely to change the preprocessing revision.
+
+Ingestion selects at most 50 unique durable statements (at least eight UTF-16
+code units), then splits each selected statement into verbatim chunks of at
+most 100000 UTF-16 code units without splitting surrogate pairs. Chunking can
+produce more than 50 memories; it does not discard the tail of a selected
+statement. Direct memory embedding accepts up to 100000 Unicode code points,
+matching the API/provider bounds; HTTP batches remain at most 100 inputs and
+500000 UTF-16 code units. The original artifact and each chunk's evidence quote
+are retained.
+The same bounds apply to grounded statements from an optional LLM provider.
 
 Migration `002_embedding_identity.sql` adds nullable identity columns and a
 partial B-tree over tenant/model/preprocessing for ready vectors. The latter
