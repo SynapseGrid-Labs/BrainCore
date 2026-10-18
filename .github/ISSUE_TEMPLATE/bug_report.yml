@@ -1,0 +1,36 @@
+name: Bug report
+description: Report reproducible incorrect or unsafe behavior
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Redact API keys, memory content, hostnames, and tenant identifiers.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Exact BrainCore version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, container runtime, Node/Bun/Python versions, and deployment shape.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security check
+      options:
+        - label: This does not expose a vulnerability or real secret. I will use SECURITY.md for sensitive reports.
+          required: true

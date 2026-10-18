@@ -1,0 +1,25 @@
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+  lexical-backfill:
+    build:
+      context: .
+      dockerfile: Dockerfile
+  legacy-lexical-backfill:
+    build:
+      context: .
+      dockerfile: Dockerfile
+  embedder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile

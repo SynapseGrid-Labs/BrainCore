@@ -1,0 +1,9 @@
+{
+  "name": "LoCoMo",
+  "source_repository": "https://github.com/snap-research/locomo",
+  "source_commit": "3eb6f2c585f5e1699204e3c3bdf7adc5c28cb376",
+  "dataset_path": "data/locomo10.json",
+  "license": "CC-BY-NC-4.0",
+  "redistributed": false,
+  "notes": "Adapter only. Users must obtain the dataset from the official source and comply with the non-commercial license."
+}

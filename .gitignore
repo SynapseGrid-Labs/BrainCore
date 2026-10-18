@@ -1,34 +1,23 @@
-# Dependencies
-node_modules/
-
-# Environment
 .env
-.env.local
-.env.production
-
-# Data directories
-data/
-logs/
-archive/
-backup/
-
-# Build artifacts
-*.bak*
-*.log
-benchmark-results.json
+.env.*
+!.env.example
+.venv/
 __pycache__/
-*.pyc
-.fastembed_cache/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Nightly cron flock
-.nightly.lock
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+dist/
+build/
+coverage/
+.coverage
+htmlcov/
+*.log
+*.db
+*.sqlite*
+data/
+backups/
+.braincore/
+dashboard/dist/
+artifacts/private/

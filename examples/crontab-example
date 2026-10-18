@@ -1,5 +1,0 @@
-# BrainCore Crontab Example
-# Add these entries to your crontab: crontab -e
-
-# Nightly pipeline (archive, extract, consolidate, publish) at 2:40 AM
-40 2 * * * /path/to/braincore/cron/nightly.sh
