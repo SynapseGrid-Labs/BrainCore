@@ -58,6 +58,14 @@ def test_dependabot_preserves_supported_compiler_api_and_node_minimum():
         assert "versions" not in item, "Patch and minor security repairs must remain eligible"
 
 
+def test_dependabot_python_updates_keep_uv_lock_in_sync():
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    root = [item["package-ecosystem"] for item in config["updates"] if item["directory"] == "/"]
+    assert "pip" not in root, "pip updates leave uv.lock stale and fail locked installs"
+    assert root.count("uv") == 1
+    assert (ROOT / "uv.lock").is_file()
+
+
 def test_required_codeql_context_requires_both_languages():
     workflow = yaml.safe_load((ROOT / ".github/workflows/codeql.yml").read_text())
     analysis = workflow["jobs"]["analyze"]
