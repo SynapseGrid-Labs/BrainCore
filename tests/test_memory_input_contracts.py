@@ -1,5 +1,6 @@
 """Native content and explicit LangGraph client-mode contracts."""
 
+import asyncio
 import json
 from typing import Any
 from uuid import uuid4
@@ -180,7 +181,7 @@ async def test_one_injected_client_retains_transport_auth_and_rejects_other_mode
         await store.aclose()
         assert not sync_raw.is_closed and not async_raw.is_closed
     finally:
-        sync_raw.close()
+        await asyncio.to_thread(sync_raw.close)
         await async_raw.aclose()
 
 
