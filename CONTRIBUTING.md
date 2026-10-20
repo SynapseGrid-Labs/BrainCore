@@ -25,6 +25,13 @@ is maintained separately: Dependabot's Bun parser skips aliased manifest entries
 so do not rely on it to propose updates to that native compiler. Keep the alias
 pinned and verify compiler, generation, build, and audit checks when updating it.
 
+Python application and development dependencies are locked in `uv.lock`, and CI
+installs them with `uv sync --locked`. Dependabot uses its `uv` ecosystem to keep
+dependency declarations and the lockfile consistent; an update may change either
+file or both. Build requirements such as Hatchling are declared separately in
+`[build-system]`. After editing Python dependencies by hand, run `uv lock` with
+the uv version pinned in CI and commit the changed files.
+
 Run `scripts/test-packages.sh` for clean artifact installation and run normal
 `npm pack` to exercise preparation hooks. Changes to the database, authentication,
 write outcomes, or compatibility mapping require their relevant integration and

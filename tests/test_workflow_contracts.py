@@ -1,5 +1,6 @@
 """Guard coupled CodeQL actions and protected analysis coverage."""
 
+import posixpath
 import re
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -56,6 +57,30 @@ def test_dependabot_preserves_supported_compiler_api_and_node_minimum():
     for item in ignored:
         assert item.get("update-types") == ["version-update:semver-major"]
         assert "versions" not in item, "Patch and minor security repairs must remain eligible"
+
+
+def _python_update_directories(update):
+    # Dependabot expands `directories` globs differently from fnmatch, so Python updates
+    # must name literal directories for lockfile coverage to stay checkable.
+    directories = update.get("directories") or [update["directory"]]
+    for directory in directories:
+        assert not set(directory) & set("*?[]{}"), f"Use literal Python directories: {directory!r}"
+    return {posixpath.normpath("/" + directory.lstrip("/")) for directory in directories}
+
+
+def test_dependabot_python_updates_keep_uv_lock_in_sync():
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    python_updates = [
+        item for item in config["updates"] if item["package-ecosystem"] in {"pip", "uv"}
+    ]
+    root = [
+        item["package-ecosystem"]
+        for item in python_updates
+        if "/" in _python_update_directories(item)
+    ]
+    assert "pip" not in root, "pip updates leave uv.lock stale and fail locked installs"
+    assert root.count("uv") == 1
+    assert (ROOT / "uv.lock").is_file()
 
 
 def test_required_codeql_context_requires_both_languages():
