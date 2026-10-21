@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from types import MappingProxyType
 from typing import Any
 
 import httpx
@@ -109,6 +110,19 @@ async def test_put_batches_respect_http_limit_and_keep_every_reference(
     assert [item["metadata"]["langgraph"]["value"] for item in flattened] == [
         {"content": f"value-{i}"} for i in range(count)
     ]
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_put_accepts_any_mapping_value(asynchronous: bool) -> None:
+    api = ContractAPI()
+    value = MappingProxyType({"content": "read-only value", "tags": ["a"]})
+    async with store_for(api) as store:
+        operations: list[Op] = [PutOp(("user-42", "preferences"), "key-0", value)]
+        results = await run_batch(store, operations, asynchronous=asynchronous)
+    assert results == [None]
+    [item] = api.batches[0]
+    assert item["content"] == "read-only value"
+    assert item["metadata"]["langgraph"]["value"] == {"content": "read-only value", "tags": ["a"]}
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
