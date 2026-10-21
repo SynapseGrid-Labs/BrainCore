@@ -7,6 +7,24 @@ version in the source.
 
 ## [Unreleased]
 
+### Fixed
+
+- The LangGraph store accepts any mapping as a `put` value. `langgraph-checkpoint` 4.3.0
+  types values as `Mapping`, and non-`dict` mappings previously failed JSON serialization.
+
+### Security
+
+- Update `certifi` to 2026.10.19 for PYSEC-2026-4320.
+- Move CI to Node 24 actions (`setup-uv` 10.3.0, `setup-node` 7.1.0) and set
+  `cache-local-path` so `setup-uv` never parses repository TOML for its cache directory.
+
+### Changed
+
+- Update dependencies: FastAPI 0.143.3 (adds `opentelemetry-api`), psycopg 3.3.6,
+  Pydantic 2.14.1, pydantic-settings 2.16.1, LangGraph 1.2.16, `langgraph-checkpoint`
+  4.3.0, `langgraph-sdk` 0.4.8, Hatchling 1.32.4, pytest 9.1.1, Ruff 0.17.1, Commander
+  14.0.3 and TypeScript 5.9.3.
+
 ## [2.0.0] - October source candidate
 
 ### Breaking

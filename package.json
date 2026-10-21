@@ -59,14 +59,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "commander": "14.0.0",
+    "commander": "14.0.3",
     "postgres": "3.4.9",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",
     "openapi-typescript": "7.13.0",
-    "typescript": "5.9.2",
+    "typescript": "5.9.3",
     "typescript-native": "npm:typescript@7.0.2"
   },
   "overrides": {

@@ -86,8 +86,9 @@ class BrainCoreStore(BaseStore):
     def _remember_item(self, op: PutOp) -> dict[str, Any]:
         if op.value is None:
             raise ValueError("delete operations cannot be converted to remember items")
+        value = dict(op.value)
         return {
-            "content": self._content(op.value),
+            "content": self._content(value),
             "scope": self._scope(op.namespace),
             "reference": {"namespace": list(op.namespace), "key": op.key},
             "evidence": {"source_type": "langgraph"},
@@ -95,7 +96,7 @@ class BrainCoreStore(BaseStore):
                 "langgraph": {
                     "namespace": list(op.namespace),
                     "key": op.key,
-                    "value": op.value,
+                    "value": value,
                 }
             },
         }

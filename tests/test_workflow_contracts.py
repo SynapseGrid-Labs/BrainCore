@@ -30,6 +30,22 @@ def test_codeql_init_and_analyze_use_one_pinned_release():
     assert pairs > 0, "No CodeQL analyses found"
 
 
+def test_setup_uv_never_reads_repository_toml_for_its_cache():
+    # Unless the uv version and cache directory are set, setup-uv parses pyproject.toml and uv.toml
+    # with its bundled TOML parser. Every step sets both, plus the Python version, explicitly.
+    steps = 0
+    for path in (ROOT / ".github/workflows").glob("*.yml"):
+        workflow = yaml.safe_load(path.read_text())
+        for name, job in workflow.get("jobs", {}).items():
+            for step in job.get("steps", []):
+                if step.get("uses", "").startswith("astral-sh/setup-uv@"):
+                    inputs = step.get("with", {})
+                    for key in ("version", "python-version", "cache-local-path"):
+                        assert inputs.get(key), (path.name, name, key)
+                    steps += 1
+    assert steps > 0, "No setup-uv steps found"
+
+
 def test_dependabot_keeps_codeql_components_in_one_group():
     config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
     updates = [item for item in config["updates"] if item["package-ecosystem"] == "github-actions"]
