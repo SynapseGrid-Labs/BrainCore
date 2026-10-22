@@ -17,6 +17,9 @@ compiler API required by `openapi-typescript`; keep it within that generator's
 peer dependency range. Use `bun run typecheck` rather than calling `tsc` directly,
 because both compiler packages expose that binary name.
 
+Dependabot proposes version updates only after a release is seven days old;
+security updates are not delayed.
+
 Dependabot leaves compiler-API and Commander major upgrades for explicit
 compatibility review; their patch and minor updates remain enabled. Review
 TypeScript upgrades against the OpenAPI generator's peer range, and Commander

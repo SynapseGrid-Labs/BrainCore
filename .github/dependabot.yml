@@ -1,9 +1,12 @@
 version: 2
+# Version updates wait seven days after a release; security updates are not delayed.
 updates:
   - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     ignore:
       # OpenAPI generation requires the TypeScript 5 compiler API.
       - dependency-name: typescript
@@ -23,10 +26,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       codeql:
         patterns:
@@ -35,3 +42,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

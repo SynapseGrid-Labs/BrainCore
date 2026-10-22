@@ -46,6 +46,13 @@ def test_setup_uv_never_reads_repository_toml_for_its_cache():
     assert steps > 0, "No setup-uv steps found"
 
 
+def test_dependabot_version_updates_wait_for_releases_to_settle():
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    for update in config["updates"]:
+        cooldown = update.get("cooldown", {})
+        assert cooldown.get("default-days", 0) >= 7, update["package-ecosystem"]
+
+
 def test_dependabot_keeps_codeql_components_in_one_group():
     config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
     updates = [item for item in config["updates"] if item["package-ecosystem"] == "github-actions"]
